@@ -27,12 +27,6 @@
         }
         @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
         
-        .prose h1, .prose h2, .prose h3 { font-weight: 600; margin-top: 1rem; margin-bottom: 0.5rem; color: #1e293b; }
-        .prose h3 { font-size: 1.15rem; }
-        .prose ul { list-style-type: disc; padding-left: 1.5rem; margin-bottom: 1rem; }
-        .prose p { margin-bottom: 0.75rem; }
-        .prose strong { color: #0f172a; }
-        
         #map { height: 250px; z-index: 10; border-radius: 0.5rem; }
         
         /* Hide scrollbar for chips container but allow scrolling */
@@ -211,7 +205,7 @@
                                         <div class="flex flex-col items-center justify-center text-slate-400">
                                             <svg class="w-12 h-12 mb-3 text-slate-300" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20 13V6a2 2 0 00-2-2H6a2 2 0 00-2 2v7m16 0v5a2 2 0 01-2 2H6a2 2 0 01-2-2v-5m16 0h-2.586a1 1 0 00-.707.293l-2.414 2.414a1 1 0 01-.707.293h-3.172a1 1 0 01-.707-.293l-2.414-2.414A1 1 0 006.586 13H4"></path></svg>
                                             <p class="font-medium text-slate-500">No data loaded.</p>
-                                            <p class="text-xs mt-1">Click "Load Records" to load the local CSV data.</p>
+                                            <p class="text-xs mt-1">Select a year and click "Load Records".</p>
                                         </div>
                                     </td>
                                 </tr>
@@ -343,7 +337,6 @@
         // UI Elements
         const fetchBtn = document.getElementById('fetchBtn');
         const fetchBtnText = document.getElementById('fetchBtnText');
-        const aiBtn = document.getElementById('aiBtn');
         const statusBadge = document.getElementById('statusBadge');
         const tableBody = document.getElementById('tableBody');
         const recordCount = document.getElementById('recordCount');
@@ -543,15 +536,18 @@
         }
 
         async function loadCsvBundle(year) {
+            // Updated to use the Cloudflare R2 public bucket URL
+            const directoryPath = 'https://pub-2fa3e4f059b7421d993f0d69e62e86be.r2.dev/'; 
+            
             const filesToTry = [
-                { name: 'calls_for_service.csv', type: 'calls' },
-                { name: 'general_offenses.csv', type: 'gos' },
-                { name: 'arrest_bookings.csv', type: 'arrests' }
+                { name: `${directoryPath}calls_for_service.csv`, type: 'calls' },
+                { name: `${directoryPath}general_offenses.csv`, type: 'gos' },
+                { name: `${directoryPath}arrest_bookings.csv`, type: 'arrests' }
             ];
 
             const results = await Promise.all(filesToTry.map(async file => {
                 try {
-                    const rows = await loadCsvFile(`./CSV File/${file.name}`, file.type, year);
+                    const rows = await loadCsvFile(file.name, file.type, year);
                     return { type: file.type, rows };
                 } catch (error) {
                     console.warn(`Could not load ${file.name}:`, error);
@@ -567,8 +563,6 @@
         }
 
         function processAndMapData(bundle) {
-            // PERFORMANCE: Pre-calculate lowercase search strings and parsing dates ONCE during load
-            // instead of dynamically calculating them thousands of times per keystroke in applyFilters().
             rawData = (bundle.calls || []).map((item, idx) => {
                 const dt = getCallTimestamp(item);
                 return {
@@ -615,7 +609,7 @@
             const originalIcon = fetchBtn.querySelector('svg').outerHTML;
             fetchBtn.innerHTML = `<div class="loader"></div> <span id="fetchBtnText">Loading CSV...</span>`;
             fetchBtn.disabled = true;
-            setStatus(`Loading local CSV (${year})...`, 'loading');
+            setStatus(`Loading remote CSV (${year})...`, 'loading');
 
             try {
                 const bundle = await loadCsvBundle(year);
@@ -624,7 +618,7 @@
                 processAndMapData(bundle);
                 
                 if (rawData.length === 0 && goReports.length === 0 && arrestRecords.length === 0) {
-                    setStatus('Local CSVs empty/missing, using mock data...', 'warning');
+                    setStatus('CSVs empty/missing, using mock data...', 'warning');
                     processAndMapData(generateMockData(150, year));
                 } else {
                     setStatus(`Loaded ${rawData.length} calls, ${goReports.length} GOs, ${arrestRecords.length} arrests`, 'success');
@@ -640,7 +634,7 @@
                 applyFilters();
             } finally {
                 if (requestId === activeDataRequest) {
-                    fetchBtn.innerHTML = `${originalIcon} <span id="fetchBtnText">Refresh Data</span>`;
+                    fetchBtn.innerHTML = `${originalIcon} <span id="fetchBtnText">Load Records</span>`;
                     fetchBtn.disabled = false;
                 }
             }
@@ -788,7 +782,6 @@
                 let matchesSearch = true;
                 if (searchTerms.length > 0) {
                     const isQuickSearch = rawSearchTerm === 'traffic accident stop dui' || rawSearchTerm === 'burglary theft steal shoplift';
-                    // PERFORMANCE: We now query the O(1) pre-computed _searchStr 
                     if (isQuickSearch) {
                         matchesSearch = searchTerms.some(term => record._searchStr.includes(term));
                     } else {
@@ -798,7 +791,6 @@
                 
                 let matchesDate = true;
                 if (startDate || endDate) {
-                    // PERFORMANCE: We evaluate against an O(1) integer timestamp, instead of casting Date strings.
                     if (startDate && record._timestamp < startDate.getTime()) matchesDate = false;
                     if (endDate && record._timestamp > endDate.getTime()) matchesDate = false;
                 }
@@ -806,7 +798,6 @@
                 return matchesSearch && matchesPriority && matchesDate && matchesType && matchesDistrict && matchesBeat;
             });
 
-            // PERFORMANCE: Native integer sorting based on pre-calculated timestamp
             matchedData.sort((a, b) => {
                 if (sortOrder === 'asc') return a._timestamp - b._timestamp;
                 return b._timestamp - a._timestamp; 
@@ -840,7 +831,6 @@
             const endIndex = startIndex + pageSize;
             filteredData = allMatches.slice(startIndex, endIndex);
 
-            // SECURITY: escapeHTML() implemented thoroughly across template elements
             const rows = filteredData.map(record => {
                 if (currentDataset === 'calls') {
                     const dateTime = formatDateTime(record.call_received_date_time || record.call_received_date, record.call_received_time);
@@ -903,7 +893,6 @@
             recordCount.innerHTML = `Showing <span class="font-bold text-slate-800">${filteredData.length}</span> of <span class="text-slate-600">${totalMatches}</span> matching records`;
         }
 
-        // Display generic details modal based on selected dataset
         function viewDetails(internalIdx) {
             let record = null;
             let type = '';
@@ -937,7 +926,7 @@
                 document.getElementById('md_reported').innerText = escapeHTML(record.call_reported_as || '--');
                 document.getElementById('md_event_type').innerText = escapeHTML(record.event_type || '--');
                 document.getElementById('md_closed').innerText = escapeHTML(record.call_closed_as || '--');
-                document.getElementById('md_priority').innerHTML = getPriorityBadge(record.call_priority); // Safe: Built using escapeHTML
+                document.getElementById('md_priority').innerHTML = getPriorityBadge(record.call_priority);
                 document.getElementById('md_how').innerText = escapeHTML(record.call_how_received || '--');
                 document.getElementById('md_cleared').innerText = escapeHTML(record.call_cleared_by || '--');
                 
@@ -959,7 +948,6 @@
                 const linkedCase = findLinkedCaseData(record);
                 const linkageEl = document.getElementById('caseLinkageContent');
                 if (linkedCase.matchedGoReports.length) {
-                    // SECURITY: Ensure linked array generation is fully escaped
                     linkageEl.innerHTML = linkedCase.matchedGoReports.map(go => `
                         <div class="rounded-lg border border-emerald-200 bg-emerald-50 p-2 sm:p-3 mb-2 text-emerald-900">
                             <b>GO: ${escapeHTML(go.report_number)}</b> - ${escapeHTML(go.report_primary_offense_description || 'General Offense')}<br/>
@@ -1045,8 +1033,6 @@
             
             setTimeout(() => {
                 detailsModal.classList.add('hidden');
-                // PERFORMANCE: Do NOT destroy leafletMap entirely. Simply hide it.
-                // Map reuse is much better for browser garbage collection.
             }, 300);
         }
 
@@ -1066,7 +1052,6 @@
             fallback.classList.add('hidden');
 
             setTimeout(() => {
-                // PERFORMANCE: Recycle map instances
                 if (!leafletMap) {
                     leafletMap = L.map('map').setView([lat, lon], 15);
                     L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
