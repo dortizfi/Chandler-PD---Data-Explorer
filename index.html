@@ -1,0 +1,1171 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Chandler PD - Data Explorer</title>
+    
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Leaflet CSS & JS for Mapping -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin=""/>
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
+    
+    <style>
+        ::-webkit-scrollbar { width: 8px; height: 8px; }
+        ::-webkit-scrollbar-track { background: #f8fafc; }
+        ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 4px; }
+        ::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
+        
+        .loader {
+            border: 3px solid rgba(255,255,255,0.3);
+            border-radius: 50%;
+            border-top: 3px solid #ffffff;
+            width: 16px;
+            height: 16px;
+            animation: spin 1s linear infinite;
+            display: inline-block;
+        }
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+        
+        .prose h1, .prose h2, .prose h3 { font-weight: 600; margin-top: 1rem; margin-bottom: 0.5rem; color: #1e293b; }
+        .prose h3 { font-size: 1.15rem; }
+        .prose ul { list-style-type: disc; padding-left: 1.5rem; margin-bottom: 1rem; }
+        .prose p { margin-bottom: 0.75rem; }
+        .prose strong { color: #0f172a; }
+        
+        #map { height: 250px; z-index: 10; border-radius: 0.5rem; }
+        
+        /* Hide scrollbar for chips container but allow scrolling */
+        .no-scrollbar::-webkit-scrollbar { display: none; }
+        .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+    </style>
+</head>
+<body class="bg-slate-50 text-slate-900 font-sans h-screen flex flex-col overflow-hidden">
+
+    <header class="bg-slate-900 text-white p-4 shadow-md flex justify-between items-center shrink-0 z-30 relative">
+        <div class="flex items-center gap-3">
+            <!-- Mobile Menu Toggle -->
+            <button onclick="toggleSidebar()" class="md:hidden text-slate-300 hover:text-white p-1 bg-slate-800 rounded">
+                <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16"></path></svg>
+            </button>
+            <div>
+                <h1 class="text-xl font-bold flex items-center gap-2">
+                    <svg class="w-6 h-6 text-blue-400 hidden sm:block" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z"></path></svg>
+                    Chandler PD Data Explorer
+                </h1>
+                <p class="text-slate-400 text-xs mt-0.5 sm:mt-1">Public safety records</p>
+            </div>
+        </div>
+        <div id="statusBadge" class="bg-slate-700 text-slate-300 text-xs px-3 py-1 rounded-full font-medium border border-slate-600 transition-colors duration-300 whitespace-nowrap">
+            Waiting to fetch...
+        </div>
+    </header>
+
+    <main class="flex-1 flex flex-col md:flex-row overflow-hidden relative">
+        
+        <!-- Mobile Sidebar Overlay -->
+        <div id="sidebarOverlay" onclick="toggleSidebar()" class="fixed inset-0 bg-slate-900/50 z-30 hidden md:hidden backdrop-blur-sm transition-opacity opacity-0 duration-300"></div>
+
+        <!-- Sidebar Controls -->
+        <aside id="sidebar" class="w-72 md:w-72 bg-white border-r border-slate-200 p-5 shrink-0 flex flex-col gap-5 overflow-y-auto z-40 shadow-2xl md:shadow-[4px_0_15px_-3px_rgba(0,0,0,0.05)] absolute md:relative inset-y-0 left-0 transform -translate-x-full md:translate-x-0 transition-transform duration-300 h-full">
+            
+            <div class="flex justify-between items-center md:hidden mb-2 border-b pb-2">
+                <h2 class="text-sm font-bold text-slate-800 uppercase tracking-wider">Menu</h2>
+                <button onclick="toggleSidebar()" class="text-slate-500 hover:text-slate-800 p-1 bg-slate-100 rounded">
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>
+                </button>
+            </div>
+
+            <div>
+                <h2 class="text-sm font-bold text-slate-800 uppercase tracking-wider border-b pb-2 mb-3">Load Data</h2>
+                
+                <div class="space-y-3">
+                    <div>
+                        <label class="block text-xs font-semibold text-slate-600 mb-1">Dataset</label>
+                        <select id="datasetSelect" onchange="switchDataset()" class="w-full bg-slate-50 border border-slate-300 text-slate-900 text-sm rounded-lg focus:ring-blue-500 focus:border-blue-500 p-2 outline-none transition-shadow hover:bg-white">
+                            <option value="calls" selected>Calls for Service (CAD)</option>
+                            <option value="gos">General Offenses (GO)</option>
+                            <option value="arrests">Arrest Bookings</option>
+                        </select>
+                    </div>
+
+                    <div>
+                        <label class="block text-xs font-semibold text-slate-600 mb-1">Database Year</label>
+                        <select id="yearSelect" class="w-full bg-slate-50 border border-slate-300 text-slate-900 text-sm rounded-lg focus:ring-blue-500 focus:border-blue-500 p-2 outline-none transition-shadow hover:bg-white">
+                            <option value="" selected disabled>Select a year</option>
+                            <option value="2026">2026 (Current)</option>
+                            <option value="2025">2025</option>
+                            <option value="2024">2024</option>
+                            <option value="2023">2023</option>
+                            <option value="2022">2022</option>
+                            <option value="2021">2021</option>
+                            <option value="2020">2020</option>
+                            <option value="2019">2019</option>
+                        </select>
+                    </div>
+
+                    <button id="fetchBtn" onclick="fetchData()" class="w-full bg-slate-900 hover:bg-slate-800 text-white font-medium py-2.5 px-4 rounded-lg transition-all text-sm flex justify-center items-center gap-2 shadow-sm hover:shadow active:scale-[0.98]">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"></path></svg>
+                        <span id="fetchBtnText">Load Records</span>
+                    </button>
+                </div>
+            </div>
+
+            <div>
+                <h2 class="text-sm font-bold text-slate-800 uppercase tracking-wider border-b pb-2 mb-3 mt-2">Search & Filter</h2>
+                
+                <div class="space-y-3">
+                    <div>
+                        <label class="block text-xs font-semibold text-slate-600 mb-1">Search Keywords</label>
+                        <input type="text" id="searchInput" placeholder="Multi-word search supported..." oninput="scheduleFilters()" class="w-full bg-slate-50 border border-slate-300 text-slate-900 text-sm rounded-lg focus:ring-blue-500 focus:border-blue-500 p-2 outline-none transition-shadow hover:bg-white placeholder-slate-400">
+                    </div>
+                    
+                    <!-- Dynamic Dropdowns -->
+                    <div>
+                        <label class="block text-xs font-semibold text-slate-600 mb-1">Incident Type</label>
+                        <select id="typeFilter" onchange="scheduleFilters()" class="w-full bg-slate-50 border border-slate-300 text-slate-900 text-sm rounded-lg focus:ring-blue-500 focus:border-blue-500 p-2 outline-none transition-shadow hover:bg-white">
+                            <option value="all">All Types</option>
+                        </select>
+                    </div>
+
+                    <div class="grid grid-cols-2 gap-2" id="geoFilters">
+                        <div>
+                            <label class="block text-xs font-semibold text-slate-600 mb-1">District</label>
+                            <select id="districtFilter" onchange="scheduleFilters()" class="w-full bg-slate-50 border border-slate-300 text-slate-900 text-sm rounded-lg focus:ring-blue-500 focus:border-blue-500 p-2 outline-none transition-shadow hover:bg-white">
+                                <option value="all">All</option>
+                            </select>
+                        </div>
+                        <div>
+                            <label class="block text-xs font-semibold text-slate-600 mb-1">Beat</label>
+                            <select id="beatFilter" onchange="scheduleFilters()" class="w-full bg-slate-50 border border-slate-300 text-slate-900 text-sm rounded-lg focus:ring-blue-500 focus:border-blue-500 p-2 outline-none transition-shadow hover:bg-white">
+                                <option value="all">All</option>
+                            </select>
+                        </div>
+                    </div>
+
+                    <div class="grid grid-cols-2 gap-2">
+                        <div>
+                            <label class="block text-xs font-semibold text-slate-600 mb-1">Start Date</label>
+                            <input type="date" id="startDate" onchange="scheduleFilters()" class="w-full bg-slate-50 border border-slate-300 text-slate-900 text-xs rounded-lg focus:ring-blue-500 focus:border-blue-500 p-2 outline-none">
+                        </div>
+                        <div>
+                            <label class="block text-xs font-semibold text-slate-600 mb-1">End Date</label>
+                            <input type="date" id="endDate" onchange="scheduleFilters()" class="w-full bg-slate-50 border border-slate-300 text-slate-900 text-xs rounded-lg focus:ring-blue-500 focus:border-blue-500 p-2 outline-none">
+                        </div>
+                    </div>
+
+                    <div id="priorityFilterContainer">
+                        <label class="block text-xs font-semibold text-slate-600 mb-1">Priority Level (CAD Only)</label>
+                        <select id="priorityFilter" onchange="scheduleFilters()" class="w-full bg-slate-50 border border-slate-300 text-slate-900 text-sm rounded-lg focus:ring-blue-500 focus:border-blue-500 p-2 outline-none transition-shadow hover:bg-white">
+                            <option value="all">All Priorities</option>
+                            <option value="high">High Priority (1 & 2)</option>
+                            <option value="1">Priority 1 (Critical)</option>
+                            <option value="2">Priority 2 (Urgent)</option>
+                            <option value="3">Priority 3 (Standard)</option>
+                            <option value="4">Priority 4 (Low)</option>
+                        </select>
+                    </div>
+
+                    <div>
+                        <label class="block text-xs font-semibold text-slate-600 mb-1">Sort Order</label>
+                        <select id="sortOrder" onchange="scheduleFilters()" class="w-full bg-slate-50 border border-slate-300 text-slate-900 text-sm rounded-lg focus:ring-blue-500 focus:border-blue-500 p-2 outline-none transition-shadow hover:bg-white">
+                            <option value="desc">Newest First</option>
+                            <option value="asc">Oldest First</option>
+                        </select>
+                    </div>
+                </div>
+            </div>
+        </aside>
+
+        <section class="flex-1 flex flex-col bg-slate-100 overflow-hidden relative">
+            
+            <!-- Quick Filters Bar -->
+            <div class="bg-white border-b border-slate-200 px-4 py-2 shrink-0 flex items-center gap-2 overflow-x-auto no-scrollbar shadow-sm z-10 w-full">
+                <span class="text-xs font-bold text-slate-400 uppercase tracking-wider mr-2 shrink-0 flex items-center gap-1">
+                    <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"></path></svg>
+                    Quick Views:
+                </span>
+                <button onclick="applyQuickFilter('high_priority')" class="shrink-0 px-3 py-1.5 rounded-full bg-red-50 text-red-700 border border-red-200 text-xs font-medium hover:bg-red-100 transition-colors">🚨 High Priority Calls</button>
+                <button onclick="applyQuickFilter('traffic')" class="shrink-0 px-3 py-1.5 rounded-full bg-blue-50 text-blue-700 border border-blue-200 text-xs font-medium hover:bg-blue-100 transition-colors">🚗 Traffic & Accidents</button>
+                <button onclick="applyQuickFilter('burglary_theft')" class="shrink-0 px-3 py-1.5 rounded-full bg-amber-50 text-amber-700 border border-amber-200 text-xs font-medium hover:bg-amber-100 transition-colors">🏠 Burglary & Theft (GO)</button>
+                <button onclick="applyQuickFilter('clear')" class="shrink-0 px-3 py-1.5 rounded-full bg-slate-100 text-slate-600 border border-slate-300 text-xs font-medium hover:bg-slate-200 transition-colors ml-auto">❌ Clear Filters</button>
+            </div>
+
+            <!-- Table Container -->
+            <div class="flex-1 overflow-auto p-3 sm:p-6">
+                <div class="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden w-full h-full flex flex-col">
+                    <div class="flex-1 overflow-auto">
+                        <table class="min-w-full text-left text-sm whitespace-nowrap">
+                            <thead id="tableHeaders" class="uppercase tracking-wider border-b-2 border-slate-200 bg-slate-50 sticky top-0 z-10">
+                                <tr>
+                                    <th scope="col" class="px-4 sm:px-6 py-4 font-semibold text-slate-700">Incident Details</th>
+                                    <th scope="col" class="px-4 sm:px-6 py-4 font-semibold text-slate-700">Priority</th>
+                                    <th scope="col" class="px-4 sm:px-6 py-4 font-semibold text-slate-700">Reported As</th>
+                                    <th scope="col" class="px-4 sm:px-6 py-4 font-semibold text-slate-700">Location</th>
+                                    <th scope="col" class="px-4 sm:px-6 py-4 font-semibold text-slate-700">Action</th>
+                                </tr>
+                            </thead>
+                            <tbody id="tableBody" class="divide-y divide-slate-100 bg-white">
+                                <tr>
+                                    <td colspan="5" class="px-6 py-20 text-center">
+                                        <div class="flex flex-col items-center justify-center text-slate-400">
+                                            <svg class="w-12 h-12 mb-3 text-slate-300" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20 13V6a2 2 0 00-2-2H6a2 2 0 00-2 2v7m16 0v5a2 2 0 01-2 2H6a2 2 0 01-2-2v-5m16 0h-2.586a1 1 0 00-.707.293l-2.414 2.414a1 1 0 01-.707.293h-3.172a1 1 0 01-.707-.293l-2.414-2.414A1 1 0 006.586 13H4"></path></svg>
+                                            <p class="font-medium text-slate-500">No data loaded.</p>
+                                            <p class="text-xs mt-1">Click "Load Records" to load the local CSV data.</p>
+                                        </div>
+                                    </td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="bg-white border-t border-slate-200 p-3 px-4 sm:px-6 text-xs text-slate-500 flex flex-col sm:flex-row justify-between items-center shrink-0 gap-3">
+                <div id="recordCount" class="font-medium w-full sm:w-auto text-center sm:text-left">Showing 0 records</div>
+                <div class="flex items-center gap-2">
+                    <button id="prevPageBtn" onclick="changePage(-1)" class="px-3 py-1.5 rounded border border-slate-300 bg-white hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed">Prev</button>
+                    <span id="pageInfo" class="font-medium text-slate-600 px-2">Page 1</span>
+                    <button id="nextPageBtn" onclick="changePage(1)" class="px-3 py-1.5 rounded border border-slate-300 bg-white hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed">Next</button>
+                </div>
+                <span class="hidden sm:inline">Source: <a href="https://data.chandlerpd.com" target="_blank" class="text-blue-500 hover:underline">Chandler PD Open Data</a></span>
+            </div>
+        </section>
+
+        <!-- Details Modal Overlay -->
+        <div id="detailsModal" class="hidden absolute inset-0 z-50 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-2 sm:p-4 md:p-10 opacity-0 transition-opacity duration-300">
+            <!-- Modal Container with max-h and strict scrolling bounds -->
+            <div class="bg-white rounded-xl shadow-2xl w-full max-w-5xl max-h-[95vh] flex flex-col overflow-hidden transform scale-95 transition-transform duration-300" id="detailsModalContent">
+                
+                <!-- Modal Header -->
+                <div class="bg-slate-50 border-b border-slate-200 px-4 sm:px-6 py-3 sm:py-4 flex justify-between items-center shrink-0">
+                    <div>
+                        <h3 class="text-lg sm:text-xl font-bold text-slate-800" id="modalTitle">Incident Details</h3>
+                        <p class="text-xs text-slate-500" id="modalSubtitle">Loading...</p>
+                    </div>
+                    <button onclick="closeDetailsModal()" class="text-slate-400 hover:text-slate-700 bg-slate-200/50 hover:bg-slate-200 p-2 rounded-full transition-colors">
+                        <svg class="w-5 h-5 sm:w-6 sm:h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>
+                    </button>
+                </div>
+                
+                <!-- Modal Body (Y-Scrollable) -->
+                <div class="flex-1 overflow-y-auto p-4 sm:p-6 bg-white">
+                    <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 sm:gap-8">
+                        
+                        <!-- Details Column -->
+                        <div class="space-y-6">
+                            
+                            <!-- Classification Block -->
+                            <div>
+                                <h4 class="text-xs font-bold uppercase tracking-wider text-slate-400 mb-3 border-b pb-1">Classification</h4>
+                                <div class="grid grid-cols-2 gap-y-3 gap-x-2 sm:gap-x-4 text-xs sm:text-sm">
+                                    <div><span class="text-slate-500 block text-[10px] sm:text-xs">Primary Descriptor</span><strong id="md_reported" class="text-slate-800 break-words"></strong></div>
+                                    <div><span class="text-slate-500 block text-[10px] sm:text-xs">Event/Class Type</span><strong id="md_event_type" class="text-slate-800 break-words"></strong></div>
+                                    <div id="md_closed_container"><span class="text-slate-500 block text-[10px] sm:text-xs">Closed/Status</span><strong id="md_closed" class="text-slate-800"></strong></div>
+                                    <div id="md_priority_container"><span class="text-slate-500 block text-[10px] sm:text-xs">Priority</span><div id="md_priority" class="mt-0.5"></div></div>
+                                    <div id="md_how_container"><span class="text-slate-500 block text-[10px] sm:text-xs">How Received</span><strong id="md_how" class="text-slate-800"></strong></div>
+                                    <div id="md_cleared_container"><span class="text-slate-500 block text-[10px] sm:text-xs">Cleared By</span><strong id="md_cleared" class="text-slate-800"></strong></div>
+                                </div>
+                            </div>
+                            
+                            <!-- Timeline Block -->
+                            <div>
+                                <h4 class="text-xs font-bold uppercase tracking-wider text-slate-400 mb-3 border-b pb-1">Timeline</h4>
+                                <div class="grid grid-cols-2 gap-y-3 gap-x-2 sm:gap-x-4 text-xs sm:text-sm">
+                                    <div class="col-span-2 sm:col-span-1"><span class="text-slate-500 block text-[10px] sm:text-xs">Received/Event Date</span><strong id="md_received" class="text-slate-800"></strong></div>
+                                    <div id="md_dispatched_container"><span class="text-slate-500 block text-[10px] sm:text-xs">Dispatched</span><strong id="md_dispatched" class="text-slate-800"></strong></div>
+                                    <div id="md_enroute_container"><span class="text-slate-500 block text-[10px] sm:text-xs">En Route</span><strong id="md_enroute" class="text-slate-800"></strong></div>
+                                    <div id="md_onscene_container"><span class="text-slate-500 block text-[10px] sm:text-xs">On Scene</span><strong id="md_onscene" class="text-slate-800"></strong></div>
+                                    <div id="md_911_container"><span class="text-slate-500 block text-[10px] sm:text-xs">911 Timestamp</span><strong id="md_911" class="text-slate-800"></strong></div>
+                                </div>
+                            </div>
+
+                        </div>
+                        
+                        <!-- Map & Location Column -->
+                        <div class="space-y-6 flex flex-col h-full">
+                            
+                            <!-- Case Linkage Block (Only shown for CAD Calls) -->
+                            <div id="caseLinkageContainer">
+                                <h4 class="text-xs font-bold uppercase tracking-wider text-slate-400 mb-3 border-b pb-1">Case Linkage</h4>
+                                <div id="caseLinkageContent" class="space-y-3 text-xs sm:text-sm"></div>
+                            </div>
+
+                            <div>
+                                <h4 class="text-xs font-bold uppercase tracking-wider text-slate-400 mb-3 border-b pb-1">Geography & Routing</h4>
+                                <div class="grid grid-cols-2 gap-y-3 gap-x-2 sm:gap-x-4 text-xs sm:text-sm mb-4">
+                                    <div class="col-span-2"><span class="text-slate-500 block text-[10px] sm:text-xs">Address / Location</span><strong id="md_address" class="text-slate-800"></strong></div>
+                                    <div><span class="text-slate-500 block text-[10px] sm:text-xs">City</span><strong id="md_city" class="text-slate-800"></strong></div>
+                                    <div id="md_district_container"><span class="text-slate-500 block text-[10px] sm:text-xs">District</span><strong id="md_district" class="text-slate-800"></strong></div>
+                                    <div id="md_beat_container"><span class="text-slate-500 block text-[10px] sm:text-xs">Beat</span><strong id="md_beat" class="text-slate-800"></strong></div>
+                                </div>
+                            </div>
+                            
+                            <!-- Leaflet Map Container -->
+                            <div class="flex-1 min-h-[200px] sm:min-h-[250px] relative rounded-lg border border-slate-200 overflow-hidden bg-slate-100 flex flex-col mt-auto">
+                                <div id="map" class="flex-1 w-full h-full"></div>
+                                <div id="mapFallback" class="hidden absolute inset-0 flex items-center justify-center text-slate-500 text-sm bg-slate-50">
+                                    Coordinates not available for this record.
+                                </div>
+                            </div>
+                            <div class="text-[10px] sm:text-xs text-slate-400 flex gap-4 mt-2">
+                                <span>Lat: <span id="md_lat">--</span></span>
+                                <span>Lon: <span id="md_lon">--</span></span>
+                            </div>
+                        </div>
+                        
+                    </div>
+                </div>
+                
+                <div class="bg-slate-50 border-t border-slate-200 px-4 sm:px-6 py-3 shrink-0 flex justify-end">
+                    <button onclick="closeDetailsModal()" class="bg-slate-800 hover:bg-slate-700 text-white px-4 py-2 rounded text-sm font-medium transition-colors w-full sm:w-auto">Close Details</button>
+                </div>
+            </div>
+        </div>
+
+    </main>
+
+    <script>
+        let currentDataset = 'calls'; // 'calls', 'gos', or 'arrests'
+        let rawData = [];
+        let filteredData = [];
+        let allMatches = [];
+        let goReports = [];
+        let arrestRecords = [];
+        let currentPage = 1;
+        const pageSize = 100;
+        let leafletMap = null;
+        let mapMarker = null;
+        let activeDataRequest = 0;
+        let filterDebounceTimer = null;
+        const linkageCache = new Map();
+
+        // UI Elements
+        const fetchBtn = document.getElementById('fetchBtn');
+        const fetchBtnText = document.getElementById('fetchBtnText');
+        const aiBtn = document.getElementById('aiBtn');
+        const statusBadge = document.getElementById('statusBadge');
+        const tableBody = document.getElementById('tableBody');
+        const recordCount = document.getElementById('recordCount');
+        const prevPageBtn = document.getElementById('prevPageBtn');
+        const nextPageBtn = document.getElementById('nextPageBtn');
+        const pageInfo = document.getElementById('pageInfo');
+        const detailsModal = document.getElementById('detailsModal');
+        const detailsModalContent = document.getElementById('detailsModalContent');
+        const priorityFilterContainer = document.getElementById('priorityFilterContainer');
+
+        // Security Utility: Sanitize text injected via innerHTML
+        const escapeHTML = (str) => {
+            if (str === null || str === undefined) return '';
+            return String(str).replace(/[&<>'"]/g, match => ({
+                '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;'
+            }[match]));
+        };
+
+        // Mobile Sidebar Logic
+        function toggleSidebar() {
+            const sidebar = document.getElementById('sidebar');
+            const overlay = document.getElementById('sidebarOverlay');
+            if (sidebar.classList.contains('-translate-x-full')) {
+                sidebar.classList.remove('-translate-x-full');
+                overlay.classList.remove('hidden');
+                setTimeout(() => overlay.classList.remove('opacity-0'), 10);
+            } else {
+                sidebar.classList.add('-translate-x-full');
+                overlay.classList.add('opacity-0');
+                setTimeout(() => overlay.classList.add('hidden'), 300);
+            }
+        }
+
+        function setStatus(text, type = 'info') {
+            statusBadge.innerText = escapeHTML(text);
+            if (type === 'loading') statusBadge.className = "bg-blue-100 text-blue-700 text-[10px] sm:text-xs px-2 sm:px-3 py-1 rounded-full font-medium border border-blue-200 transition-colors whitespace-nowrap";
+            else if (type === 'success') statusBadge.className = "bg-emerald-100 text-emerald-700 text-[10px] sm:text-xs px-2 sm:px-3 py-1 rounded-full font-medium border border-emerald-200 transition-colors whitespace-nowrap";
+            else if (type === 'warning') statusBadge.className = "bg-amber-100 text-amber-800 text-[10px] sm:text-xs px-2 sm:px-3 py-1 rounded-full font-medium border border-amber-200 transition-colors whitespace-nowrap";
+            else if (type === 'error') statusBadge.className = "bg-orange-100 text-orange-700 text-[10px] sm:text-xs px-2 sm:px-3 py-1 rounded-full font-medium border border-orange-200 transition-colors whitespace-nowrap";
+            else statusBadge.className = "bg-slate-700 text-slate-300 text-[10px] sm:text-xs px-2 sm:px-3 py-1 rounded-full font-medium border border-slate-600 transition-colors whitespace-nowrap";
+        }
+
+        function getPriorityBadge(priorityStr) {
+            const p = parseInt(priorityStr);
+            if (p === 1) return '<span class="inline-flex items-center px-2 sm:px-2.5 py-0.5 rounded-full text-[10px] sm:text-xs font-bold bg-red-100 text-red-800 border border-red-200 shadow-sm">Priority 1</span>';
+            if (p === 2) return '<span class="inline-flex items-center px-2 sm:px-2.5 py-0.5 rounded-full text-[10px] sm:text-xs font-bold bg-orange-100 text-orange-800 border border-orange-200 shadow-sm">Priority 2</span>';
+            if (p === 3) return '<span class="inline-flex items-center px-2 sm:px-2.5 py-0.5 rounded-full text-[10px] sm:text-xs font-medium bg-yellow-100 text-yellow-800 border border-yellow-200">Priority 3</span>';
+            if (p === 4) return '<span class="inline-flex items-center px-2 sm:px-2.5 py-0.5 rounded-full text-[10px] sm:text-xs font-medium bg-blue-100 text-blue-800 border border-blue-200">Priority 4</span>';
+            return `<span class="inline-flex items-center px-2 sm:px-2.5 py-0.5 rounded-full text-[10px] sm:text-xs font-medium bg-slate-100 text-slate-800 border border-slate-200">P-${escapeHTML(priorityStr) || '?'}</span>`;
+        }
+
+        function formatDateTime(dateStr, timeStr) {
+            if (!dateStr) return timeStr || "Unknown";
+            let cleanDate = dateStr.includes("T") ? dateStr.split("T")[0] : dateStr;
+            return escapeHTML(`${cleanDate} ${timeStr || ''}`.trim());
+        }
+
+        function formatDisplayTime(dateStr, timeStr) {
+            if(!dateStr && !timeStr) return '--';
+            let d = dateStr ? (dateStr.includes("T") ? dateStr.split("T")[0] : dateStr) : '';
+            return escapeHTML(`${d} ${timeStr || ''}`.trim());
+        }
+        
+        // Linking and Matching Utilities
+        function normalizeLinkValue(value) { return String(value || '').trim().toLowerCase(); }
+        
+        function parseTimestampFromFields(dateValue, timeValue) {
+            const datePart = String(dateValue || '').trim();
+            const timePart = String(timeValue || '').trim();
+            if (!datePart) return null;
+            if (datePart.includes('T')) return new Date(datePart);
+            if (timePart) return new Date(`${datePart}T${timePart}`);
+            return new Date(datePart);
+        }
+
+        function getCallTimestamp(call) { return parseTimestampFromFields(call.call_received_date_time || call.call_received_date, call.call_received_time); }
+        function getGoTimestamp(goRecord) { return parseTimestampFromFields(goRecord.report_event_date_time || goRecord.report_event_date, goRecord.report_event_time); }
+        function getArrestTimestamp(arrestRecord) { return parseTimestampFromFields(arrestRecord.arrest_date_time || arrestRecord.arrest_date, arrestRecord.arrest_time); }
+
+        function hasSecondaryCasework(clearedBy) {
+            const normalized = normalizeLinkValue(clearedBy);
+            const gatekeeper = ['general offense', 'report taken'];
+            const noPaperwork = ['no contact', 'verbal warning', 'false alarm'];
+            if (noPaperwork.includes(normalized)) return false;
+            return gatekeeper.includes(normalized);
+        }
+
+        function parseCoordinate(value) {
+            const normalized = String(value || '').trim();
+            const parsed = Number(normalized);
+            return Number.isFinite(parsed) ? parsed : null;
+        }
+
+        function exactCoordinateMatch(call, record, latField, lonField) {
+            const aNumLat = parseCoordinate(call.call_latitude);
+            const bNumLat = parseCoordinate(record[latField]);
+            const aNumLon = parseCoordinate(call.call_longitude);
+            const bNumLon = parseCoordinate(record[lonField]);
+            
+            if (aNumLat === null || bNumLat === null || aNumLon === null || bNumLon === null) return false;
+            return Math.abs(aNumLat - bNumLat) <= 0.0015 && Math.abs(aNumLon - bNumLon) <= 0.0015;
+        }
+
+        function isWithinMinuteWindow(callTimestamp, recordTimestamp, minutes = 60) {
+            if (!callTimestamp || !recordTimestamp || Number.isNaN(callTimestamp.getTime()) || Number.isNaN(recordTimestamp.getTime())) {
+                return false;
+            }
+            return Math.abs(callTimestamp - recordTimestamp) / 60000 <= minutes;
+        }
+
+        function matchGoRecord(call, goRecord) {
+            const callKey = normalizeLinkValue(call.call_number || call.call_id);
+            const goKey = normalizeLinkValue(goRecord.report_number);
+            if (callKey && goKey && callKey === goKey) return true;
+            return exactCoordinateMatch(call, goRecord, 'report_latitude', 'report_longitude') && isWithinMinuteWindow(getCallTimestamp(call), getGoTimestamp(goRecord), 60);
+        }
+
+        function matchArrestRecord(call, arrestRecord) {
+            const callKey = normalizeLinkValue(call.call_number || call.call_id);
+            const arrestKey = normalizeLinkValue(arrestRecord.related_offense_report_number);
+            if (callKey && arrestKey && callKey === arrestKey) return true;
+            return exactCoordinateMatch(call, arrestRecord, 'arrest_latitude', 'arrest_longitude') && isWithinMinuteWindow(getCallTimestamp(call), getArrestTimestamp(arrestRecord), 60);
+        }
+
+        function findLinkedCaseData(call) {
+            const cacheKey = `${call.call_number || call.call_id || ''}|${call.call_latitude || ''}|${call.call_longitude || ''}`;
+            if (linkageCache.has(cacheKey)) return linkageCache.get(cacheKey);
+
+            const clearedBy = call.call_cleared_by || call.call_closed_as || '';
+            if (!hasSecondaryCasework(clearedBy)) {
+                const result = { matchedGoReports: [], matchedArrests: [], resolutionBlocked: true };
+                linkageCache.set(cacheKey, result);
+                return result;
+            }
+
+            const matchedGoReports = goReports.filter(goRecord => matchGoRecord(call, goRecord));
+            const matchedArrests = arrestRecords.filter(arrestRecord => matchArrestRecord(call, arrestRecord));
+            const result = { matchedGoReports, matchedArrests, resolutionBlocked: false };
+            linkageCache.set(cacheKey, result);
+            return result;
+        }
+
+        // CSV Loading and Parsing
+        function shouldIncludeRow(entry, type, year) {
+            const selectedYear = String(year || '').trim();
+            if (!selectedYear) return true;
+
+            if (type === 'calls') {
+                const rowYear = String(entry.call_year || entry.call_received_date || '').trim();
+                return rowYear === selectedYear || (entry.call_received_date || '').startsWith(`${selectedYear}-`);
+            }
+            if (type === 'gos') return String(entry.report_year || entry.report_event_date || '').trim().startsWith(selectedYear);
+            if (type === 'arrests') return String(entry.arrest_year || entry.arrest_date || '').trim().startsWith(selectedYear);
+            return true;
+        }
+
+        function parseCsvRow(line) {
+            const values = [];
+            let current = '';
+            let inQuotes = false;
+            for (let i = 0; i < line.length; i++) {
+                const char = line[i];
+                if (char === '"') {
+                    if (inQuotes && i + 1 < line.length && line[i + 1] === '"') { current += '"'; i += 1; } 
+                    else { inQuotes = !inQuotes; }
+                } else if (char === ',' && !inQuotes) {
+                    values.push(current);
+                    current = '';
+                } else {
+                    current += char;
+                }
+            }
+            values.push(current);
+            return values;
+        }
+
+        async function loadCsvFile(fileUrl, type, year) {
+            const response = await fetch(fileUrl);
+            if (!response.ok) throw new Error(`CSV file not found: ${response.status}`);
+            const text = await response.text();
+            const lines = text.split(/\r?\n/).filter(line => line.trim() !== '');
+            if (lines.length < 2) return [];
+            
+            const headers = parseCsvRow(lines[0]).map(h => h.trim());
+            const rows = [];
+            
+            for (let i = 1; i < lines.length; i++) {
+                const values = parseCsvRow(lines[i]);
+                if (values.length === 0 || values.every(value => value.trim() === '')) continue;
+                const entry = {};
+                headers.forEach((header, index) => {
+                    entry[header] = values[index] !== undefined ? values[index].trim() : '';
+                });
+                if (shouldIncludeRow(entry, type, year)) rows.push(entry);
+            }
+            return rows;
+        }
+
+        async function loadCsvBundle(year) {
+            const filesToTry = [
+                { name: 'calls_for_service.csv', type: 'calls' },
+                { name: 'general_offenses.csv', type: 'gos' },
+                { name: 'arrest_bookings.csv', type: 'arrests' }
+            ];
+
+            const results = await Promise.all(filesToTry.map(async file => {
+                try {
+                    const rows = await loadCsvFile(`./CSV File/${file.name}`, file.type, year);
+                    return { type: file.type, rows };
+                } catch (error) {
+                    console.warn(`Could not load ${file.name}:`, error);
+                    return { type: file.type, rows: [] };
+                }
+            }));
+
+            return {
+                calls: results.find(item => item.type === 'calls')?.rows || [],
+                gos: results.find(item => item.type === 'gos')?.rows || [],
+                arrests: results.find(item => item.type === 'arrests')?.rows || []
+            };
+        }
+
+        function processAndMapData(bundle) {
+            // PERFORMANCE: Pre-calculate lowercase search strings and parsing dates ONCE during load
+            // instead of dynamically calculating them thousands of times per keystroke in applyFilters().
+            rawData = (bundle.calls || []).map((item, idx) => {
+                const dt = getCallTimestamp(item);
+                return {
+                    ...item,
+                    _internal_idx: 'c_' + idx,
+                    _timestamp: dt ? dt.getTime() : 0,
+                    _searchStr: [item.call_reported_as, item.call_closed_as, item.call_address, item.call_number, item.id, item.call_id].join(' ').toLowerCase()
+                };
+            });
+
+            goReports = (bundle.gos || []).map((item, idx) => {
+                const dt = getGoTimestamp(item);
+                return {
+                    ...item,
+                    _internal_idx: 'g_' + idx,
+                    _timestamp: dt ? dt.getTime() : 0,
+                    _searchStr: [item.report_number, item.report_primary_offense_description, item.report_address, item.report_summary_offense_description].join(' ').toLowerCase()
+                };
+            });
+
+            arrestRecords = (bundle.arrests || []).map((item, idx) => {
+                const dt = getArrestTimestamp(item);
+                return {
+                    ...item,
+                    _internal_idx: 'a_' + idx,
+                    _timestamp: dt ? dt.getTime() : 0,
+                    _searchStr: [item.related_offense_report_number, item.arrest_charge, item.arrest_address, item.arrestee_name].join(' ').toLowerCase()
+                };
+            });
+        }
+
+        async function fetchData() {
+            const year = document.getElementById('yearSelect').value;
+            if (!year) {
+                setStatus('Choose a year before loading records', 'warning');
+                return;
+            }
+
+            activeDataRequest += 1;
+            const requestId = activeDataRequest;
+            linkageCache.clear();
+
+            fetchBtnText.innerText = 'Loading CSV...';
+            const originalIcon = fetchBtn.querySelector('svg').outerHTML;
+            fetchBtn.innerHTML = `<div class="loader"></div> <span id="fetchBtnText">Loading CSV...</span>`;
+            fetchBtn.disabled = true;
+            setStatus(`Loading local CSV (${year})...`, 'loading');
+
+            try {
+                const bundle = await loadCsvBundle(year);
+                if (requestId !== activeDataRequest) return;
+
+                processAndMapData(bundle);
+                
+                if (rawData.length === 0 && goReports.length === 0 && arrestRecords.length === 0) {
+                    setStatus('Local CSVs empty/missing, using mock data...', 'warning');
+                    processAndMapData(generateMockData(150, year));
+                } else {
+                    setStatus(`Loaded ${rawData.length} calls, ${goReports.length} GOs, ${arrestRecords.length} arrests`, 'success');
+                }
+                
+                populateDynamicDropdowns();
+                applyFilters();
+            } catch (error) {
+                console.error('CSV Load Error:', error);
+                setStatus(`CSV load failed, using mock data.`, 'warning');
+                processAndMapData(generateMockData(150, year));
+                populateDynamicDropdowns();
+                applyFilters();
+            } finally {
+                if (requestId === activeDataRequest) {
+                    fetchBtn.innerHTML = `${originalIcon} <span id="fetchBtnText">Refresh Data</span>`;
+                    fetchBtn.disabled = false;
+                }
+            }
+        }
+
+        // View Toggling & Filtering
+        function switchDataset() {
+            currentDataset = document.getElementById('datasetSelect').value;
+            document.getElementById('searchInput').value = ''; 
+            
+            if(currentDataset === 'calls') {
+                priorityFilterContainer.style.display = 'block';
+            } else {
+                priorityFilterContainer.style.display = 'none';
+            }
+
+            populateDynamicDropdowns();
+            currentPage = 1;
+            applyFilters();
+        }
+
+        function populateDynamicDropdowns() {
+            let types = new Set();
+            let districts = new Set();
+            let beats = new Set();
+
+            let source = currentDataset === 'calls' ? rawData : (currentDataset === 'gos' ? goReports : arrestRecords);
+
+            source.forEach(r => {
+                if (currentDataset === 'calls') {
+                    if (r.call_reported_as) types.add(r.call_reported_as);
+                    if (r.call_district) districts.add(r.call_district);
+                    if (r.call_beat) beats.add(r.call_beat);
+                } else if (currentDataset === 'gos') {
+                    if (r.report_primary_offense_description) types.add(r.report_primary_offense_description);
+                    if (r.report_district) districts.add(r.report_district);
+                    if (r.report_beat) beats.add(r.report_beat);
+                } else {
+                    if (r.arrest_charge) types.add(r.arrest_charge);
+                }
+            });
+
+            const fillSelect = (id, set, label) => {
+                const el = document.getElementById(id);
+                const currentVal = el.value;
+                el.innerHTML = `<option value="all">All ${label}</option>`;
+                Array.from(set).sort().forEach(val => {
+                    if(val && String(val).trim() !== '') el.innerHTML += `<option value="${escapeHTML(val)}">${escapeHTML(val)}</option>`;
+                });
+                if(Array.from(set).includes(currentVal) || Array.from(set).includes(Number(currentVal))) {
+                    el.value = currentVal;
+                }
+            };
+
+            fillSelect('typeFilter', types, 'Types');
+            fillSelect('districtFilter', districts, 'Districts');
+            fillSelect('beatFilter', beats, 'Beats');
+
+            if (currentDataset === 'arrests') {
+                document.getElementById('geoFilters').style.display = 'none';
+            } else {
+                document.getElementById('geoFilters').style.display = 'grid';
+            }
+        }
+
+        function applyQuickFilter(filterType) {
+            document.getElementById('searchInput').value = '';
+            document.getElementById('typeFilter').value = 'all';
+            document.getElementById('districtFilter').value = 'all';
+            document.getElementById('beatFilter').value = 'all';
+            document.getElementById('startDate').value = '';
+            document.getElementById('endDate').value = '';
+
+            if (filterType === 'high_priority') {
+                document.getElementById('datasetSelect').value = 'calls';
+                switchDataset(); 
+                document.getElementById('priorityFilter').value = 'high';
+            } else if (filterType === 'traffic') {
+                document.getElementById('datasetSelect').value = 'calls';
+                switchDataset();
+                document.getElementById('searchInput').value = 'traffic accident stop dui';
+                document.getElementById('priorityFilter').value = 'all';
+            } else if (filterType === 'burglary_theft') {
+                document.getElementById('datasetSelect').value = 'gos';
+                switchDataset();
+                document.getElementById('searchInput').value = 'burglary theft steal shoplift';
+            } else if (filterType === 'clear') {
+                if(currentDataset === 'calls') document.getElementById('priorityFilter').value = 'all';
+            }
+
+            scheduleFilters();
+        }
+
+        function scheduleFilters() {
+            if (filterDebounceTimer) clearTimeout(filterDebounceTimer);
+            filterDebounceTimer = window.setTimeout(() => applyFilters(), 120);
+        }
+
+        function applyFilters() {
+            const rawSearchTerm = document.getElementById('searchInput').value.toLowerCase().trim();
+            const searchTerms = rawSearchTerm ? rawSearchTerm.split(/\s+/) : [];
+            
+            const sortOrder = document.getElementById('sortOrder').value;
+            const startDateRaw = document.getElementById('startDate').value;
+            const endDateRaw = document.getElementById('endDate').value;
+            const typeFilter = document.getElementById('typeFilter').value;
+            const districtFilter = document.getElementById('districtFilter').value;
+            const beatFilter = document.getElementById('beatFilter').value;
+            
+            const startDate = startDateRaw ? new Date(startDateRaw) : null;
+            const endDate = endDateRaw ? new Date(endDateRaw) : null;
+            if(endDate) endDate.setHours(23, 59, 59, 999);
+
+            let sourceData = [];
+            if (currentDataset === 'calls') sourceData = rawData;
+            else if (currentDataset === 'gos') sourceData = goReports;
+            else if (currentDataset === 'arrests') sourceData = arrestRecords;
+
+            let matchedData = sourceData.filter(record => {
+                let matchesPriority = true;
+                let matchesType = true;
+                let matchesDistrict = true;
+                let matchesBeat = true;
+
+                if (currentDataset === 'calls') {
+                    const priorityFilter = document.getElementById('priorityFilter').value;
+                    if (priorityFilter === 'high') {
+                        matchesPriority = ['1', '2'].includes(String(record.call_priority));
+                    } else if (priorityFilter !== 'all') {
+                        matchesPriority = String(record.call_priority) === priorityFilter;
+                    }
+                    if (typeFilter !== 'all') matchesType = record.call_reported_as === typeFilter;
+                    if (districtFilter !== 'all') matchesDistrict = String(record.call_district) === districtFilter;
+                    if (beatFilter !== 'all') matchesBeat = String(record.call_beat) === beatFilter;
+                } 
+                else if (currentDataset === 'gos') {
+                    if (typeFilter !== 'all') matchesType = record.report_primary_offense_description === typeFilter;
+                    if (districtFilter !== 'all') matchesDistrict = String(record.report_district) === districtFilter;
+                    if (beatFilter !== 'all') matchesBeat = String(record.report_beat) === beatFilter;
+                } 
+                else if (currentDataset === 'arrests') {
+                    if (typeFilter !== 'all') matchesType = record.arrest_charge === typeFilter;
+                }
+
+                let matchesSearch = true;
+                if (searchTerms.length > 0) {
+                    const isQuickSearch = rawSearchTerm === 'traffic accident stop dui' || rawSearchTerm === 'burglary theft steal shoplift';
+                    // PERFORMANCE: We now query the O(1) pre-computed _searchStr 
+                    if (isQuickSearch) {
+                        matchesSearch = searchTerms.some(term => record._searchStr.includes(term));
+                    } else {
+                        matchesSearch = searchTerms.every(term => record._searchStr.includes(term));
+                    }
+                }
+                
+                let matchesDate = true;
+                if (startDate || endDate) {
+                    // PERFORMANCE: We evaluate against an O(1) integer timestamp, instead of casting Date strings.
+                    if (startDate && record._timestamp < startDate.getTime()) matchesDate = false;
+                    if (endDate && record._timestamp > endDate.getTime()) matchesDate = false;
+                }
+
+                return matchesSearch && matchesPriority && matchesDate && matchesType && matchesDistrict && matchesBeat;
+            });
+
+            // PERFORMANCE: Native integer sorting based on pre-calculated timestamp
+            matchedData.sort((a, b) => {
+                if (sortOrder === 'asc') return a._timestamp - b._timestamp;
+                return b._timestamp - a._timestamp; 
+            });
+
+            allMatches = matchedData;
+            currentPage = 1;
+            renderTable(matchedData.length);
+        }
+
+        function changePage(direction) {
+            if (!allMatches.length) return;
+            const totalPages = Math.ceil(allMatches.length / pageSize);
+            currentPage = Math.min(totalPages, Math.max(1, currentPage + direction));
+            renderTable(allMatches.length);
+        }
+
+        function renderTable(totalMatches = allMatches.length) {
+            tableBody.innerHTML = '';
+            
+            if (totalMatches === 0) {
+                tableBody.innerHTML = `<tr><td colspan="5" class="px-6 py-12 text-center text-slate-500 bg-slate-50">No records found matching your filters.</td></tr>`;
+                prevPageBtn.disabled = true;
+                nextPageBtn.disabled = true;
+                pageInfo.innerText = 'Page 1';
+                recordCount.innerHTML = `Showing <span class="font-bold text-slate-800">0</span> of <span class="text-slate-600">0</span> matching records`;
+                return;
+            }
+
+            const startIndex = (currentPage - 1) * pageSize;
+            const endIndex = startIndex + pageSize;
+            filteredData = allMatches.slice(startIndex, endIndex);
+
+            // SECURITY: escapeHTML() implemented thoroughly across template elements
+            const rows = filteredData.map(record => {
+                if (currentDataset === 'calls') {
+                    const dateTime = formatDateTime(record.call_received_date_time || record.call_received_date, record.call_received_time);
+                    const safeId = escapeHTML(record.call_number || record.id || record.call_id); 
+                    return `
+                    <tr class="hover:bg-blue-50 transition-colors group cursor-pointer" onclick="viewDetails('${record._internal_idx}')">
+                        <td class="px-4 sm:px-6 py-4 border-b border-slate-100">
+                            <div class="font-bold text-slate-800">${safeId}</div>
+                            <div class="text-[10px] sm:text-xs text-slate-500 mt-1 flex items-center gap-1">
+                                <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
+                                ${dateTime}
+                            </div>
+                        </td>
+                        <td class="px-4 sm:px-6 py-4 border-b border-slate-100 align-middle">${getPriorityBadge(record.call_priority)}</td>
+                        <td class="px-4 sm:px-6 py-4 border-b border-slate-100">
+                            <div class="font-semibold text-slate-800 whitespace-normal min-w-[150px]">${escapeHTML(record.call_reported_as || 'UNSPECIFIED')}</div>
+                            ${record.call_closed_as ? `<div class="text-[10px] sm:text-xs text-slate-500 mt-1 whitespace-normal">Closed: ${escapeHTML(record.call_closed_as)}</div>` : ''}
+                        </td>
+                        <td class="px-4 sm:px-6 py-4 border-b border-slate-100 whitespace-normal min-w-[150px]">
+                            <div class="text-slate-800">${escapeHTML(record.call_address || record.call_place_name || 'Location Redacted')}</div>
+                            <div class="text-[10px] sm:text-xs text-slate-500 mt-1 flex gap-3">
+                                <span>Dist: ${escapeHTML(record.call_district || '--')}</span>
+                                <span>Beat: ${escapeHTML(record.call_beat || '--')}</span>
+                            </div>
+                        </td>
+                        <td class="px-4 sm:px-6 py-4 border-b border-slate-100 text-right">
+                            <button class="text-blue-600 hover:text-blue-800 text-xs font-semibold px-2 sm:px-3 py-1 sm:py-1.5 bg-blue-50 rounded group-hover:bg-blue-100 transition-colors">Details</button>
+                        </td>
+                    </tr>`;
+                } 
+                else if (currentDataset === 'gos') {
+                    const dateTime = formatDateTime(record.report_event_date_time || record.report_event_date, record.report_event_time);
+                    return `
+                    <tr class="hover:bg-emerald-50 transition-colors group cursor-pointer" onclick="viewDetails('${record._internal_idx}')">
+                        <td class="px-4 sm:px-6 py-4 border-b border-slate-100"><div class="font-bold text-slate-800">${escapeHTML(record.report_number || 'N/A')}</div></td>
+                        <td class="px-4 sm:px-6 py-4 border-b border-slate-100 text-xs sm:text-sm text-slate-600">${dateTime}</td>
+                        <td class="px-4 sm:px-6 py-4 border-b border-slate-100"><div class="font-semibold text-slate-800 whitespace-normal min-w-[150px]">${escapeHTML(record.report_primary_offense_description || 'Unspecified Offense')}</div></td>
+                        <td class="px-4 sm:px-6 py-4 border-b border-slate-100 text-slate-800 whitespace-normal min-w-[150px]">${escapeHTML(record.report_address || 'Location Redacted')}</td>
+                        <td class="px-4 sm:px-6 py-4 border-b border-slate-100 text-right"><button class="text-emerald-600 px-2 sm:px-3 py-1 sm:py-1.5 bg-emerald-50 rounded group-hover:bg-emerald-100">Details</button></td>
+                    </tr>`;
+                } 
+                else {
+                    const dateTime = formatDateTime(record.arrest_date_time || record.arrest_date, record.arrest_time);
+                    return `
+                    <tr class="hover:bg-indigo-50 transition-colors group cursor-pointer" onclick="viewDetails('${record._internal_idx}')">
+                        <td class="px-4 sm:px-6 py-4 border-b border-slate-100"><div class="font-bold text-slate-800">${escapeHTML(record.related_offense_report_number || 'No Case Link')}</div></td>
+                        <td class="px-4 sm:px-6 py-4 border-b border-slate-100 text-xs sm:text-sm text-slate-600">${dateTime}</td>
+                        <td class="px-4 sm:px-6 py-4 border-b border-slate-100"><div class="font-semibold text-slate-800 whitespace-normal min-w-[150px]">${escapeHTML(record.arrest_charge || record.arrest_class || 'Unspecified Charge')}</div></td>
+                        <td class="px-4 sm:px-6 py-4 border-b border-slate-100 text-slate-800 whitespace-normal min-w-[150px]">${escapeHTML(record.arrest_address || 'Location Redacted')}</td>
+                        <td class="px-4 sm:px-6 py-4 border-b border-slate-100 text-right"><button class="text-indigo-600 px-2 sm:px-3 py-1 sm:py-1.5 bg-indigo-50 rounded group-hover:bg-indigo-100">Details</button></td>
+                    </tr>`;
+                }
+            });
+            
+            tableBody.innerHTML = rows.join('');
+            const totalPages = Math.max(1, Math.ceil(totalMatches / pageSize));
+            prevPageBtn.disabled = currentPage === 1;
+            nextPageBtn.disabled = currentPage >= totalPages;
+            pageInfo.innerText = `Page ${currentPage} of ${totalPages}`;
+            recordCount.innerHTML = `Showing <span class="font-bold text-slate-800">${filteredData.length}</span> of <span class="text-slate-600">${totalMatches}</span> matching records`;
+        }
+
+        // Display generic details modal based on selected dataset
+        function viewDetails(internalIdx) {
+            let record = null;
+            let type = '';
+            
+            if (internalIdx.startsWith('c_')) { record = rawData[parseInt(internalIdx.substring(2))]; type = 'calls'; }
+            else if (internalIdx.startsWith('g_')) { record = goReports[parseInt(internalIdx.substring(2))]; type = 'gos'; }
+            else if (internalIdx.startsWith('a_')) { record = arrestRecords[parseInt(internalIdx.substring(2))]; type = 'arrests'; }
+            
+            if(!record) return;
+
+            document.getElementById('md_closed_container').style.display = 'block';
+            document.getElementById('md_priority_container').style.display = 'block';
+            document.getElementById('md_how_container').style.display = 'block';
+            document.getElementById('md_cleared_container').style.display = 'block';
+            document.getElementById('md_dispatched_container').style.display = 'block';
+            document.getElementById('md_enroute_container').style.display = 'block';
+            document.getElementById('md_onscene_container').style.display = 'block';
+            document.getElementById('md_911_container').style.display = 'block';
+            document.getElementById('md_district_container').style.display = 'block';
+            document.getElementById('md_beat_container').style.display = 'block';
+            document.getElementById('caseLinkageContainer').style.display = 'block';
+
+            let latStr = null;
+            let lonStr = null;
+
+            if (type === 'calls') {
+                const callId = escapeHTML(record.call_number || record.id || record.call_id);
+                document.getElementById('modalTitle').innerText = `Service Call ${callId}`;
+                document.getElementById('modalSubtitle').innerText = `Agency: ${escapeHTML(record.agency || 'Chandler PD')} | Year: ${escapeHTML(record.call_year || 'N/A')}`;
+                
+                document.getElementById('md_reported').innerText = escapeHTML(record.call_reported_as || '--');
+                document.getElementById('md_event_type').innerText = escapeHTML(record.event_type || '--');
+                document.getElementById('md_closed').innerText = escapeHTML(record.call_closed_as || '--');
+                document.getElementById('md_priority').innerHTML = getPriorityBadge(record.call_priority); // Safe: Built using escapeHTML
+                document.getElementById('md_how').innerText = escapeHTML(record.call_how_received || '--');
+                document.getElementById('md_cleared').innerText = escapeHTML(record.call_cleared_by || '--');
+                
+                const recvDate = record.call_received_date_time || record.call_received_date;
+                document.getElementById('md_received').innerText = formatDisplayTime(recvDate, record.call_received_time) + ` (${escapeHTML(record.call_received_day || '')})`;
+                document.getElementById('md_dispatched').innerText = formatDisplayTime(record.call_dispatched_date_time, null);
+                document.getElementById('md_enroute').innerText = formatDisplayTime(record.call_enroute_date_time, null);
+                document.getElementById('md_onscene').innerText = formatDisplayTime(record.call_on_scene_date_time, null);
+                document.getElementById('md_911').innerText = formatDisplayTime(record.call_911_date_time, null) || '--';
+                
+                document.getElementById('md_address').innerText = escapeHTML(record.call_address || '--');
+                document.getElementById('md_city').innerText = escapeHTML(record.call_city || 'Chandler');
+                document.getElementById('md_district').innerText = escapeHTML(record.call_district || '--');
+                document.getElementById('md_beat').innerText = escapeHTML(record.call_beat || '--');
+                
+                latStr = record.call_latitude;
+                lonStr = record.call_longitude;
+
+                const linkedCase = findLinkedCaseData(record);
+                const linkageEl = document.getElementById('caseLinkageContent');
+                if (linkedCase.matchedGoReports.length) {
+                    // SECURITY: Ensure linked array generation is fully escaped
+                    linkageEl.innerHTML = linkedCase.matchedGoReports.map(go => `
+                        <div class="rounded-lg border border-emerald-200 bg-emerald-50 p-2 sm:p-3 mb-2 text-emerald-900">
+                            <b>GO: ${escapeHTML(go.report_number)}</b> - ${escapeHTML(go.report_primary_offense_description || 'General Offense')}<br/>
+                            <span class="text-[10px] sm:text-xs text-emerald-700">Status: ${escapeHTML(go.report_status || 'Open')}</span>
+                        </div>
+                    `).join('');
+                } else {
+                    linkageEl.innerHTML = `<div class="rounded-lg border border-slate-200 bg-slate-50 p-2 sm:p-3 text-slate-600">No linked GO reports found.</div>`;
+                }
+
+            } else if (type === 'gos') {
+                document.getElementById('modalTitle').innerText = `GO Report ${escapeHTML(record.report_number || 'N/A')}`;
+                document.getElementById('modalSubtitle').innerText = `General Offense | Year: ${escapeHTML(record.report_year || 'N/A')}`;
+                
+                document.getElementById('md_reported').innerText = escapeHTML(record.report_primary_offense_description || '--');
+                document.getElementById('md_event_type').innerText = escapeHTML(record.report_summary_offense_description || '--');
+                document.getElementById('md_closed').innerText = escapeHTML(record.report_status || '--');
+                
+                document.getElementById('md_priority_container').style.display = 'none';
+                document.getElementById('md_how_container').style.display = 'none';
+                document.getElementById('md_cleared_container').style.display = 'none';
+                document.getElementById('md_dispatched_container').style.display = 'none';
+                document.getElementById('md_enroute_container').style.display = 'none';
+                document.getElementById('md_onscene_container').style.display = 'none';
+                document.getElementById('md_911_container').style.display = 'none';
+                document.getElementById('caseLinkageContainer').style.display = 'none';
+                
+                document.getElementById('md_received').innerText = formatDisplayTime(record.report_event_date_time || record.report_event_date, record.report_event_time);
+                
+                document.getElementById('md_address').innerText = escapeHTML(record.report_address || '--');
+                document.getElementById('md_city').innerText = escapeHTML(record.report_city || 'Chandler');
+                document.getElementById('md_district').innerText = escapeHTML(record.report_district || '--');
+                document.getElementById('md_beat').innerText = escapeHTML(record.report_beat || '--');
+
+                latStr = record.report_latitude;
+                lonStr = record.report_longitude;
+
+            } else if (type === 'arrests') {
+                document.getElementById('modalTitle').innerText = `Arrest ${escapeHTML(record.related_offense_report_number || 'Record')}`;
+                document.getElementById('modalSubtitle').innerText = `Arrestee: ${escapeHTML(record.arrestee_name || 'Redacted')} | Age: ${escapeHTML(record.arrestee_age || '--')} | Sex: ${escapeHTML(record.arrestee_sex || record.arrestee_gender || '--')}`;
+                
+                document.getElementById('md_reported').innerText = escapeHTML(record.arrest_charge || '--');
+                document.getElementById('md_event_type').innerText = escapeHTML(record.arrest_class || '--');
+                
+                document.getElementById('md_closed_container').style.display = 'none';
+                document.getElementById('md_priority_container').style.display = 'none';
+                document.getElementById('md_how_container').style.display = 'none';
+                document.getElementById('md_cleared_container').style.display = 'none';
+                document.getElementById('md_dispatched_container').style.display = 'none';
+                document.getElementById('md_enroute_container').style.display = 'none';
+                document.getElementById('md_onscene_container').style.display = 'none';
+                document.getElementById('md_911_container').style.display = 'none';
+                document.getElementById('md_district_container').style.display = 'none';
+                document.getElementById('md_beat_container').style.display = 'none';
+                document.getElementById('caseLinkageContainer').style.display = 'none';
+                
+                document.getElementById('md_received').innerText = formatDisplayTime(record.arrest_date_time || record.arrest_date, record.arrest_time);
+                
+                document.getElementById('md_address').innerText = escapeHTML(record.arrest_address || '--');
+                document.getElementById('md_city').innerText = escapeHTML(record.arrest_city || 'Chandler');
+                
+                latStr = record.arrest_latitude;
+                lonStr = record.arrest_longitude;
+            }
+
+            document.getElementById('md_lat').innerText = escapeHTML(latStr || '--');
+            document.getElementById('md_lon').innerText = escapeHTML(lonStr || '--');
+
+            detailsModal.classList.remove('hidden');
+            setTimeout(() => {
+                detailsModal.classList.remove('opacity-0');
+                detailsModalContent.classList.remove('scale-95');
+                detailsModalContent.classList.add('scale-100');
+            }, 10);
+
+            initMap(latStr, lonStr);
+        }
+
+        function closeDetailsModal() {
+            detailsModal.classList.add('opacity-0');
+            detailsModalContent.classList.remove('scale-100');
+            detailsModalContent.classList.add('scale-95');
+            
+            setTimeout(() => {
+                detailsModal.classList.add('hidden');
+                // PERFORMANCE: Do NOT destroy leafletMap entirely. Simply hide it.
+                // Map reuse is much better for browser garbage collection.
+            }, 300);
+        }
+
+        function initMap(latStr, lonStr) {
+            const mapContainer = document.getElementById('map');
+            const fallback = document.getElementById('mapFallback');
+            const lat = parseFloat(latStr);
+            const lon = parseFloat(lonStr);
+
+            if (isNaN(lat) || isNaN(lon) || lat === 0 || lon === 0) {
+                mapContainer.style.display = 'none';
+                fallback.classList.remove('hidden');
+                return;
+            }
+
+            mapContainer.style.display = 'block';
+            fallback.classList.add('hidden');
+
+            setTimeout(() => {
+                // PERFORMANCE: Recycle map instances
+                if (!leafletMap) {
+                    leafletMap = L.map('map').setView([lat, lon], 15);
+                    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+                        maxZoom: 19,
+                        attribution: '© OpenStreetMap'
+                    }).addTo(leafletMap);
+
+                    mapMarker = L.marker([lat, lon]).addTo(leafletMap)
+                        .bindPopup('<b>Incident Location</b><br>Coordinates approximate.');
+                } else {
+                    leafletMap.setView([lat, lon], 15);
+                    mapMarker.setLatLng([lat, lon]);
+                }
+                leafletMap.invalidateSize();
+            }, 100);
+        }
+
+        // Mock data generator expanded to supply basic data for all three datasets
+        function generateMockData(count, year) {
+            const mockCalls = [];
+            const mockGos = [];
+            const mockArrests = [];
+            
+            const types = ["TRAFFIC STOP", "SUSPICIOUS PERSON", "THEFT", "NOISE COMPLAINT", "BURGLARY", "DOMESTIC DISTURBANCE", "ACCIDENT", "WELFARE CHECK"];
+            const days = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+            const howRecv = ["911", "Non-Emergency Line", "Officer Initiated", "Radio"];
+            const cleared = ["Arrest", "Citation", "Verbal Warning", "Report Taken", "Unfounded", "Unable to Locate"];
+            
+            for(let i=0; i<count; i++) {
+                const mMonth = Math.floor(Math.random() * 12) + 1;
+                const dDay = Math.floor(Math.random() * 28) + 1;
+                const h = Math.floor(Math.random() * 24).toString().padStart(2, '0');
+                const m = Math.floor(Math.random() * 60).toString().padStart(2, '0');
+                
+                const lat = 33.3061 + (Math.random() * 0.1 - 0.05);
+                const lon = -111.8412 + (Math.random() * 0.1 - 0.05);
+                const dateStr = `${year}-${mMonth.toString().padStart(2,'0')}-${dDay.toString().padStart(2,'0')}`;
+                const timeStr = `${h}:${m}:00`;
+                const rStr = types[Math.floor(Math.random() * types.length)];
+                const caseNum = `CPD-${year}-${Math.floor(Math.random()*90000)+10000}`;
+
+                mockCalls.push({
+                    call_number: caseNum,
+                    call_year: year.toString(),
+                    call_received_date: dateStr,
+                    call_received_time: timeStr,
+                    call_received_date_time: `${dateStr}T${timeStr}`,
+                    call_received_day: days[new Date(dateStr).getDay()],
+                    call_city: "CHANDLER",
+                    call_district: Math.floor(Math.random() * 6) + 1,
+                    call_beat: Math.floor(Math.random() * 18) + 1,
+                    call_latitude: lat.toFixed(5),
+                    call_longitude: lon.toFixed(5),
+                    call_priority: Math.floor(Math.random() * 4) + 1,
+                    call_how_received: howRecv[Math.floor(Math.random() * howRecv.length)],
+                    call_reported_as: rStr,
+                    call_closed_as: Math.random() > 0.3 ? rStr : 'UNFOUNDED',
+                    call_cleared_by: cleared[Math.floor(Math.random() * cleared.length)],
+                    call_address: `${Math.floor(Math.random() * 5000)} BLOCK OF RANDOM AVE`
+                });
+
+                if(Math.random() > 0.75) {
+                    mockGos.push({
+                        report_number: caseNum,
+                        report_year: year.toString(),
+                        report_event_date: dateStr,
+                        report_event_time: timeStr,
+                        report_event_date_time: `${dateStr}T${timeStr}`,
+                        report_primary_offense_description: rStr,
+                        report_status: 'OPEN',
+                        report_latitude: lat.toFixed(5),
+                        report_longitude: lon.toFixed(5),
+                        report_address: `${Math.floor(Math.random() * 5000)} BLOCK OF RANDOM AVE`
+                    });
+                }
+                
+                if(Math.random() > 0.90) {
+                    mockArrests.push({
+                        related_offense_report_number: caseNum,
+                        arrest_year: year.toString(),
+                        arrest_date: dateStr,
+                        arrest_time: timeStr,
+                        arrest_date_time: `${dateStr}T${timeStr}`,
+                        arrest_charge: rStr,
+                        arrest_class: 'MISDEMEANOR',
+                        arrestee_name: 'DOE, JOHN',
+                        arrestee_age: Math.floor(Math.random() * 40) + 18,
+                        arrest_latitude: lat.toFixed(5),
+                        arrest_longitude: lon.toFixed(5),
+                        arrest_address: `${Math.floor(Math.random() * 5000)} BLOCK OF RANDOM AVE`
+                    });
+                }
+            }
+            return { calls: mockCalls, gos: mockGos, arrests: mockArrests };
+        }
+
+        window.addEventListener('DOMContentLoaded', () => {
+            fetchData();
+        });
+    </script>
+</body>
+</html>
