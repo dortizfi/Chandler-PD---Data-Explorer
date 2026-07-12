@@ -4,18 +4,18 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Chandler PD - Data Explorer</title>
-    
+
     <script src="https://cdn.tailwindcss.com"></script>
     <!-- Leaflet CSS & JS for Mapping -->
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin=""/>
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
-    
+
     <style>
         ::-webkit-scrollbar { width: 8px; height: 8px; }
         ::-webkit-scrollbar-track { background: #f8fafc; }
         ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 4px; }
         ::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
-        
+
         .loader {
             border: 3px solid rgba(255,255,255,0.3);
             border-radius: 50%;
@@ -26,12 +26,24 @@
             display: inline-block;
         }
         @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
-        
+
         #map { height: 250px; z-index: 10; border-radius: 0.5rem; }
-        
+
         /* Hide scrollbar for chips container but allow scrolling */
         .no-scrollbar::-webkit-scrollbar { display: none; }
         .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+
+        .stat-bar-track { background: #f1f5f9; border-radius: 4px; overflow: hidden; }
+        .stat-bar-fill { background: #3b82f6; height: 100%; border-radius: 4px; transition: width .3s ease; }
+
+        [data-focus-visible-added] { outline: 2px solid #3b82f6; outline-offset: 2px; }
+        button:focus-visible, select:focus-visible, input:focus-visible, a:focus-visible {
+            outline: 2px solid #3b82f6; outline-offset: 2px;
+        }
+
+        @media (prefers-reduced-motion: reduce) {
+            * { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; }
+        }
     </style>
 </head>
 <body class="bg-slate-50 text-slate-900 font-sans h-screen flex flex-col overflow-hidden">
@@ -39,7 +51,7 @@
     <header class="bg-slate-900 text-white p-4 shadow-md flex justify-between items-center shrink-0 z-30 relative">
         <div class="flex items-center gap-3">
             <!-- Mobile Menu Toggle -->
-            <button onclick="toggleSidebar()" class="md:hidden text-slate-300 hover:text-white p-1 bg-slate-800 rounded">
+            <button onclick="toggleSidebar()" class="md:hidden text-slate-300 hover:text-white p-1 bg-slate-800 rounded" aria-label="Toggle menu">
                 <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16"></path></svg>
             </button>
             <div>
@@ -50,32 +62,38 @@
                 <p class="text-slate-400 text-xs mt-0.5 sm:mt-1">Public safety records</p>
             </div>
         </div>
-        <div id="statusBadge" class="bg-slate-700 text-slate-300 text-xs px-3 py-1 rounded-full font-medium border border-slate-600 transition-colors duration-300 whitespace-nowrap">
-            Waiting to fetch...
+        <div class="flex items-center gap-2">
+            <button id="summaryToggleBtn" onclick="toggleSummary()" class="hidden sm:flex items-center gap-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs px-3 py-1.5 rounded-full font-medium border border-slate-600 transition-colors">
+                <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"></path></svg>
+                Summary
+            </button>
+            <div id="statusBadge" class="bg-slate-700 text-slate-300 text-xs px-3 py-1 rounded-full font-medium border border-slate-600 transition-colors duration-300 whitespace-nowrap">
+                Waiting to fetch...
+            </div>
         </div>
     </header>
 
     <main class="flex-1 flex flex-col md:flex-row overflow-hidden relative">
-        
+
         <!-- Mobile Sidebar Overlay -->
         <div id="sidebarOverlay" onclick="toggleSidebar()" class="fixed inset-0 bg-slate-900/50 z-30 hidden md:hidden backdrop-blur-sm transition-opacity opacity-0 duration-300"></div>
 
         <!-- Sidebar Controls -->
         <aside id="sidebar" class="w-72 md:w-72 bg-white border-r border-slate-200 p-5 shrink-0 flex flex-col gap-5 overflow-y-auto z-40 shadow-2xl md:shadow-[4px_0_15px_-3px_rgba(0,0,0,0.05)] absolute md:relative inset-y-0 left-0 transform -translate-x-full md:translate-x-0 transition-transform duration-300 h-full">
-            
+
             <div class="flex justify-between items-center md:hidden mb-2 border-b pb-2">
                 <h2 class="text-sm font-bold text-slate-800 uppercase tracking-wider">Menu</h2>
-                <button onclick="toggleSidebar()" class="text-slate-500 hover:text-slate-800 p-1 bg-slate-100 rounded">
+                <button onclick="toggleSidebar()" class="text-slate-500 hover:text-slate-800 p-1 bg-slate-100 rounded" aria-label="Close menu">
                     <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>
                 </button>
             </div>
 
             <div>
                 <h2 class="text-sm font-bold text-slate-800 uppercase tracking-wider border-b pb-2 mb-3">Load Data</h2>
-                
+
                 <div class="space-y-3">
                     <div>
-                        <label class="block text-xs font-semibold text-slate-600 mb-1">Dataset</label>
+                        <label class="block text-xs font-semibold text-slate-600 mb-1" for="datasetSelect">Dataset</label>
                         <select id="datasetSelect" onchange="switchDataset()" class="w-full bg-slate-50 border border-slate-300 text-slate-900 text-sm rounded-lg focus:ring-blue-500 focus:border-blue-500 p-2 outline-none transition-shadow hover:bg-white">
                             <option value="calls" selected>Calls for Service (CAD)</option>
                             <option value="gos">General Offenses (GO)</option>
@@ -84,7 +102,7 @@
                     </div>
 
                     <div>
-                        <label class="block text-xs font-semibold text-slate-600 mb-1">Database Year</label>
+                        <label class="block text-xs font-semibold text-slate-600 mb-1" for="yearSelect">Database Year</label>
                         <select id="yearSelect" class="w-full bg-slate-50 border border-slate-300 text-slate-900 text-sm rounded-lg focus:ring-blue-500 focus:border-blue-500 p-2 outline-none transition-shadow hover:bg-white">
                             <option value="" selected disabled>Select a year</option>
                             <option value="2026">2026 (Current)</option>
@@ -102,21 +120,22 @@
                         <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"></path></svg>
                         <span id="fetchBtnText">Load Records</span>
                     </button>
+                    <div id="loadWarningBanner" class="hidden text-xs bg-amber-50 border border-amber-200 text-amber-800 rounded-lg p-2 leading-snug"></div>
                 </div>
             </div>
 
             <div>
                 <h2 class="text-sm font-bold text-slate-800 uppercase tracking-wider border-b pb-2 mb-3 mt-2">Search & Filter</h2>
-                
+
                 <div class="space-y-3">
                     <div>
-                        <label class="block text-xs font-semibold text-slate-600 mb-1">Search Keywords</label>
+                        <label class="block text-xs font-semibold text-slate-600 mb-1" for="searchInput">Search Keywords</label>
                         <input type="text" id="searchInput" placeholder="Multi-word search supported..." oninput="scheduleFilters()" class="w-full bg-slate-50 border border-slate-300 text-slate-900 text-sm rounded-lg focus:ring-blue-500 focus:border-blue-500 p-2 outline-none transition-shadow hover:bg-white placeholder-slate-400">
                     </div>
-                    
+
                     <!-- Dynamic Dropdowns -->
                     <div>
-                        <label class="block text-xs font-semibold text-slate-600 mb-1">Incident Type</label>
+                        <label class="block text-xs font-semibold text-slate-600 mb-1" for="typeFilter">Incident Type</label>
                         <select id="typeFilter" onchange="scheduleFilters()" class="w-full bg-slate-50 border border-slate-300 text-slate-900 text-sm rounded-lg focus:ring-blue-500 focus:border-blue-500 p-2 outline-none transition-shadow hover:bg-white">
                             <option value="all">All Types</option>
                         </select>
@@ -124,13 +143,13 @@
 
                     <div class="grid grid-cols-2 gap-2" id="geoFilters">
                         <div>
-                            <label class="block text-xs font-semibold text-slate-600 mb-1">District</label>
+                            <label class="block text-xs font-semibold text-slate-600 mb-1" for="districtFilter">District</label>
                             <select id="districtFilter" onchange="scheduleFilters()" class="w-full bg-slate-50 border border-slate-300 text-slate-900 text-sm rounded-lg focus:ring-blue-500 focus:border-blue-500 p-2 outline-none transition-shadow hover:bg-white">
                                 <option value="all">All</option>
                             </select>
                         </div>
                         <div>
-                            <label class="block text-xs font-semibold text-slate-600 mb-1">Beat</label>
+                            <label class="block text-xs font-semibold text-slate-600 mb-1" for="beatFilter">Beat</label>
                             <select id="beatFilter" onchange="scheduleFilters()" class="w-full bg-slate-50 border border-slate-300 text-slate-900 text-sm rounded-lg focus:ring-blue-500 focus:border-blue-500 p-2 outline-none transition-shadow hover:bg-white">
                                 <option value="all">All</option>
                             </select>
@@ -139,17 +158,18 @@
 
                     <div class="grid grid-cols-2 gap-2">
                         <div>
-                            <label class="block text-xs font-semibold text-slate-600 mb-1">Start Date</label>
+                            <label class="block text-xs font-semibold text-slate-600 mb-1" for="startDate">Start Date</label>
                             <input type="date" id="startDate" onchange="scheduleFilters()" class="w-full bg-slate-50 border border-slate-300 text-slate-900 text-xs rounded-lg focus:ring-blue-500 focus:border-blue-500 p-2 outline-none">
                         </div>
                         <div>
-                            <label class="block text-xs font-semibold text-slate-600 mb-1">End Date</label>
+                            <label class="block text-xs font-semibold text-slate-600 mb-1" for="endDate">End Date</label>
                             <input type="date" id="endDate" onchange="scheduleFilters()" class="w-full bg-slate-50 border border-slate-300 text-slate-900 text-xs rounded-lg focus:ring-blue-500 focus:border-blue-500 p-2 outline-none">
                         </div>
                     </div>
+                    <div id="dateOrderWarning" class="hidden text-[11px] text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-2 py-1">Start date is after end date — no records will match.</div>
 
                     <div id="priorityFilterContainer">
-                        <label class="block text-xs font-semibold text-slate-600 mb-1">Priority Level (CAD Only)</label>
+                        <label class="block text-xs font-semibold text-slate-600 mb-1" for="priorityFilter">Priority Level (CAD Only)</label>
                         <select id="priorityFilter" onchange="scheduleFilters()" class="w-full bg-slate-50 border border-slate-300 text-slate-900 text-sm rounded-lg focus:ring-blue-500 focus:border-blue-500 p-2 outline-none transition-shadow hover:bg-white">
                             <option value="all">All Priorities</option>
                             <option value="high">High Priority (1 & 2)</option>
@@ -161,18 +181,23 @@
                     </div>
 
                     <div>
-                        <label class="block text-xs font-semibold text-slate-600 mb-1">Sort Order</label>
+                        <label class="block text-xs font-semibold text-slate-600 mb-1" for="sortOrder">Sort Order</label>
                         <select id="sortOrder" onchange="scheduleFilters()" class="w-full bg-slate-50 border border-slate-300 text-slate-900 text-sm rounded-lg focus:ring-blue-500 focus:border-blue-500 p-2 outline-none transition-shadow hover:bg-white">
                             <option value="desc">Newest First</option>
                             <option value="asc">Oldest First</option>
                         </select>
                     </div>
+
+                    <button onclick="exportFilteredCsv()" class="w-full bg-white hover:bg-slate-50 text-slate-700 font-medium py-2 px-4 rounded-lg transition-all text-sm flex justify-center items-center gap-2 border border-slate-300">
+                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H8a2 2 0 01-2-2V5a2 2 0 012-2h6l6 6v11a2 2 0 01-2 2z"></path></svg>
+                        Export Filtered (CSV)
+                    </button>
                 </div>
             </div>
         </aside>
 
         <section class="flex-1 flex flex-col bg-slate-100 overflow-hidden relative">
-            
+
             <!-- Quick Filters Bar -->
             <div class="bg-white border-b border-slate-200 px-4 py-2 shrink-0 flex items-center gap-2 overflow-x-auto no-scrollbar shadow-sm z-10 w-full">
                 <span class="text-xs font-bold text-slate-400 uppercase tracking-wider mr-2 shrink-0 flex items-center gap-1">
@@ -182,7 +207,26 @@
                 <button onclick="applyQuickFilter('high_priority')" class="shrink-0 px-3 py-1.5 rounded-full bg-red-50 text-red-700 border border-red-200 text-xs font-medium hover:bg-red-100 transition-colors">🚨 High Priority Calls</button>
                 <button onclick="applyQuickFilter('traffic')" class="shrink-0 px-3 py-1.5 rounded-full bg-blue-50 text-blue-700 border border-blue-200 text-xs font-medium hover:bg-blue-100 transition-colors">🚗 Traffic & Accidents</button>
                 <button onclick="applyQuickFilter('burglary_theft')" class="shrink-0 px-3 py-1.5 rounded-full bg-amber-50 text-amber-700 border border-amber-200 text-xs font-medium hover:bg-amber-100 transition-colors">🏠 Burglary & Theft (GO)</button>
+                <button onclick="toggleSummary()" class="sm:hidden shrink-0 px-3 py-1.5 rounded-full bg-slate-100 text-slate-600 border border-slate-300 text-xs font-medium hover:bg-slate-200 transition-colors">📊 Summary</button>
                 <button onclick="applyQuickFilter('clear')" class="shrink-0 px-3 py-1.5 rounded-full bg-slate-100 text-slate-600 border border-slate-300 text-xs font-medium hover:bg-slate-200 transition-colors ml-auto">❌ Clear Filters</button>
+            </div>
+
+            <!-- Summary Panel -->
+            <div id="summaryPanel" class="hidden bg-white border-b border-slate-200 px-4 sm:px-6 py-4 shrink-0 shadow-sm z-10 overflow-y-auto max-h-72">
+                <div class="grid grid-cols-1 sm:grid-cols-3 gap-6">
+                    <div>
+                        <h3 class="text-xs font-bold uppercase tracking-wider text-slate-400 mb-2">Filtered Set</h3>
+                        <div id="summaryTotals" class="text-sm text-slate-700 space-y-1"></div>
+                    </div>
+                    <div>
+                        <h3 class="text-xs font-bold uppercase tracking-wider text-slate-400 mb-2">Top Types</h3>
+                        <div id="summaryTypes" class="space-y-1.5"></div>
+                    </div>
+                    <div>
+                        <h3 class="text-xs font-bold uppercase tracking-wider text-slate-400 mb-2" id="summaryThirdLabel">Priority Breakdown</h3>
+                        <div id="summaryThird" class="space-y-1.5"></div>
+                    </div>
+                </div>
             </div>
 
             <!-- Table Container -->
@@ -214,7 +258,7 @@
                     </div>
                 </div>
             </div>
-            
+
             <div class="bg-white border-t border-slate-200 p-3 px-4 sm:px-6 text-xs text-slate-500 flex flex-col sm:flex-row justify-between items-center shrink-0 gap-3">
                 <div id="recordCount" class="font-medium w-full sm:w-auto text-center sm:text-left">Showing 0 records</div>
                 <div class="flex items-center gap-2">
@@ -222,33 +266,33 @@
                     <span id="pageInfo" class="font-medium text-slate-600 px-2">Page 1</span>
                     <button id="nextPageBtn" onclick="changePage(1)" class="px-3 py-1.5 rounded border border-slate-300 bg-white hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed">Next</button>
                 </div>
-                <span class="hidden sm:inline">Source: <a href="https://data.chandlerpd.com" target="_blank" class="text-blue-500 hover:underline">Chandler PD Open Data</a></span>
+                <span class="hidden sm:inline">Source: <a href="https://data.chandlerpd.com" target="_blank" rel="noopener noreferrer" class="text-blue-500 hover:underline">Chandler PD Open Data</a></span>
             </div>
         </section>
 
-        <!-- Details Modal Overlay -->
-        <div id="detailsModal" class="hidden absolute inset-0 z-50 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-2 sm:p-4 md:p-10 opacity-0 transition-opacity duration-300">
+        <!-- Details Modal Overlay (FIXED positioning to prevent cutting off) -->
+        <div id="detailsModal" class="hidden fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-2 sm:p-4 md:p-10 opacity-0 transition-opacity duration-300" onclick="if(event.target === this) closeDetailsModal()">
             <!-- Modal Container with max-h and strict scrolling bounds -->
-            <div class="bg-white rounded-xl shadow-2xl w-full max-w-5xl max-h-[95vh] flex flex-col overflow-hidden transform scale-95 transition-transform duration-300" id="detailsModalContent">
-                
+            <div class="bg-white rounded-xl shadow-2xl w-full max-w-5xl max-h-[95vh] flex flex-col overflow-hidden transform scale-95 transition-transform duration-300" id="detailsModalContent" role="dialog" aria-modal="true" aria-labelledby="modalTitle">
+
                 <!-- Modal Header -->
                 <div class="bg-slate-50 border-b border-slate-200 px-4 sm:px-6 py-3 sm:py-4 flex justify-between items-center shrink-0">
                     <div>
                         <h3 class="text-lg sm:text-xl font-bold text-slate-800" id="modalTitle">Incident Details</h3>
                         <p class="text-xs text-slate-500" id="modalSubtitle">Loading...</p>
                     </div>
-                    <button onclick="closeDetailsModal()" class="text-slate-400 hover:text-slate-700 bg-slate-200/50 hover:bg-slate-200 p-2 rounded-full transition-colors">
+                    <button onclick="closeDetailsModal()" class="text-slate-400 hover:text-slate-700 bg-slate-200/50 hover:bg-slate-200 p-2 rounded-full transition-colors" aria-label="Close details">
                         <svg class="w-5 h-5 sm:w-6 sm:h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"></path></svg>
                     </button>
                 </div>
-                
+
                 <!-- Modal Body (Y-Scrollable) -->
                 <div class="flex-1 overflow-y-auto p-4 sm:p-6 bg-white">
                     <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 sm:gap-8">
-                        
+
                         <!-- Details Column -->
                         <div class="space-y-6">
-                            
+
                             <!-- Classification Block -->
                             <div>
                                 <h4 class="text-xs font-bold uppercase tracking-wider text-slate-400 mb-3 border-b pb-1">Classification</h4>
@@ -261,7 +305,7 @@
                                     <div id="md_cleared_container"><span class="text-slate-500 block text-[10px] sm:text-xs">Cleared By</span><strong id="md_cleared" class="text-slate-800"></strong></div>
                                 </div>
                             </div>
-                            
+
                             <!-- Timeline Block -->
                             <div>
                                 <h4 class="text-xs font-bold uppercase tracking-wider text-slate-400 mb-3 border-b pb-1">Timeline</h4>
@@ -275,14 +319,14 @@
                             </div>
 
                         </div>
-                        
+
                         <!-- Map & Location Column -->
                         <div class="space-y-6 flex flex-col h-full">
-                            
-                            <!-- Case Linkage Block (Only shown for CAD Calls) -->
+
+                            <!-- Case Linkage Block (shown for CAD calls, GOs, and arrests) -->
                             <div id="caseLinkageContainer">
                                 <h4 class="text-xs font-bold uppercase tracking-wider text-slate-400 mb-3 border-b pb-1">Case Linkage</h4>
-                                <div id="caseLinkageContent" class="space-y-3 text-xs sm:text-sm"></div>
+                                <div id="caseLinkageContent" class="space-y-2 text-xs sm:text-sm"></div>
                             </div>
 
                             <div>
@@ -294,7 +338,7 @@
                                     <div id="md_beat_container"><span class="text-slate-500 block text-[10px] sm:text-xs">Beat</span><strong id="md_beat" class="text-slate-800"></strong></div>
                                 </div>
                             </div>
-                            
+
                             <!-- Leaflet Map Container -->
                             <div class="flex-1 min-h-[200px] sm:min-h-[250px] relative rounded-lg border border-slate-200 overflow-hidden bg-slate-100 flex flex-col mt-auto">
                                 <div id="map" class="flex-1 w-full h-full"></div>
@@ -307,10 +351,10 @@
                                 <span>Lon: <span id="md_lon">--</span></span>
                             </div>
                         </div>
-                        
+
                     </div>
                 </div>
-                
+
                 <div class="bg-slate-50 border-t border-slate-200 px-4 sm:px-6 py-3 shrink-0 flex justify-end">
                     <button onclick="closeDetailsModal()" class="bg-slate-800 hover:bg-slate-700 text-white px-4 py-2 rounded text-sm font-medium transition-colors w-full sm:w-auto">Close Details</button>
                 </div>
@@ -334,6 +378,14 @@
         let filterDebounceTimer = null;
         const linkageCache = new Map();
 
+        // Exact-match indices for fast, reliable cross-dataset linking.
+        let goByReportNumber = new Map();     // report_number -> [go records]
+        let arrestByReportNumber = new Map(); // related_offense_report_number -> [arrest records]
+        let callByCallNumber = new Map();     // call_number -> call record (for reverse lookups)
+
+        const FETCH_TIMEOUT_MS = 25000;
+        const LARGE_DATASET_WARNING_ROWS = 60000;
+
         // UI Elements
         const fetchBtn = document.getElementById('fetchBtn');
         const fetchBtnText = document.getElementById('fetchBtnText');
@@ -346,6 +398,8 @@
         const detailsModal = document.getElementById('detailsModal');
         const detailsModalContent = document.getElementById('detailsModalContent');
         const priorityFilterContainer = document.getElementById('priorityFilterContainer');
+        const loadWarningBanner = document.getElementById('loadWarningBanner');
+        const dateOrderWarning = document.getElementById('dateOrderWarning');
 
         // Security Utility: Sanitize text injected via innerHTML
         const escapeHTML = (str) => {
@@ -353,6 +407,14 @@
             return String(str).replace(/[&<>'"]/g, match => ({
                 '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;'
             }[match]));
+        };
+
+        // CSV-injection guard: neutralize leading =, +, -, @
+        const csvSafeCell = (value) => {
+            let str = String(value === null || value === undefined ? '' : value);
+            if (/^[=+\-@]/.test(str)) str = `'${str}`;
+            if (/[",\n\r]/.test(str)) str = `"${str.replace(/"/g, '""')}"`;
+            return str;
         };
 
         // Mobile Sidebar Logic
@@ -370,13 +432,25 @@
             }
         }
 
+        function toggleSummary() {
+            const panel = document.getElementById('summaryPanel');
+            panel.classList.toggle('hidden');
+            if (!panel.classList.contains('hidden')) renderSummary();
+        }
+
         function setStatus(text, type = 'info') {
-            statusBadge.innerText = escapeHTML(text);
+            statusBadge.innerText = text;
             if (type === 'loading') statusBadge.className = "bg-blue-100 text-blue-700 text-[10px] sm:text-xs px-2 sm:px-3 py-1 rounded-full font-medium border border-blue-200 transition-colors whitespace-nowrap";
             else if (type === 'success') statusBadge.className = "bg-emerald-100 text-emerald-700 text-[10px] sm:text-xs px-2 sm:px-3 py-1 rounded-full font-medium border border-emerald-200 transition-colors whitespace-nowrap";
             else if (type === 'warning') statusBadge.className = "bg-amber-100 text-amber-800 text-[10px] sm:text-xs px-2 sm:px-3 py-1 rounded-full font-medium border border-amber-200 transition-colors whitespace-nowrap";
-            else if (type === 'error') statusBadge.className = "bg-orange-100 text-orange-700 text-[10px] sm:text-xs px-2 sm:px-3 py-1 rounded-full font-medium border border-orange-200 transition-colors whitespace-nowrap";
+            else if (type === 'error') statusBadge.className = "bg-red-100 text-red-700 text-[10px] sm:text-xs px-2 sm:px-3 py-1 rounded-full font-medium border border-red-200 transition-colors whitespace-nowrap";
             else statusBadge.className = "bg-slate-700 text-slate-300 text-[10px] sm:text-xs px-2 sm:px-3 py-1 rounded-full font-medium border border-slate-600 transition-colors whitespace-nowrap";
+        }
+
+        function showLoadWarning(message) {
+            if (!message) { loadWarningBanner.classList.add('hidden'); loadWarningBanner.innerText = ''; return; }
+            loadWarningBanner.innerText = message;
+            loadWarningBanner.classList.remove('hidden');
         }
 
         function getPriorityBadge(priorityStr) {
@@ -388,33 +462,64 @@
             return `<span class="inline-flex items-center px-2 sm:px-2.5 py-0.5 rounded-full text-[10px] sm:text-xs font-medium bg-slate-100 text-slate-800 border border-slate-200">P-${escapeHTML(priorityStr) || '?'}</span>`;
         }
 
-        function formatDateTime(dateStr, timeStr) {
-            if (!dateStr) return timeStr || "Unknown";
-            let cleanDate = dateStr.includes("T") ? dateStr.split("T")[0] : dateStr;
-            return escapeHTML(`${cleanDate} ${timeStr || ''}`.trim());
+        // Fixed date formatter: Intelligently strips out duplicate times to prevent rendering 
+        // issues on the frontend like "2026-01-01 00:00:03 00:00:03"
+        function formatDisplayTime(dateValue, timeValue) {
+            let rawDate = String(dateValue || '').trim();
+            let rawTime = String(timeValue || '').trim();
+            if (!rawDate && !rawTime) return '--';
+
+            let datePart = rawDate;
+            if (datePart.includes('T')) datePart = datePart.split('T')[0];
+            else if (datePart.includes(' ')) datePart = datePart.split(' ')[0];
+
+            if (!rawTime) {
+                if (rawDate.includes('T')) rawTime = rawDate.split('T')[1];
+                else if (rawDate.includes(' ')) rawTime = rawDate.split(' ').slice(1).join(' ');
+            }
+            
+            return escapeHTML(`${datePart} ${rawTime}`.trim());
         }
 
-        function formatDisplayTime(dateStr, timeStr) {
-            if(!dateStr && !timeStr) return '--';
-            let d = dateStr ? (dateStr.includes("T") ? dateStr.split("T")[0] : dateStr) : '';
-            return escapeHTML(`${d} ${timeStr || ''}`.trim());
-        }
-        
-        // Linking and Matching Utilities
-        function normalizeLinkValue(value) { return String(value || '').trim().toLowerCase(); }
-        
+        // Fixed date parser: Resolves the NaN bug that was causing sorting to fail.
+        // It properly ignores duplicated times stitched onto dates to construct a valid JavaScript Date.
         function parseTimestampFromFields(dateValue, timeValue) {
-            const datePart = String(dateValue || '').trim();
-            const timePart = String(timeValue || '').trim();
-            if (!datePart) return null;
-            if (datePart.includes('T')) return new Date(datePart);
-            if (timePart) return new Date(`${datePart}T${timePart}`);
-            return new Date(datePart);
+            let rawDate = String(dateValue || '').trim();
+            let rawTime = String(timeValue || '').trim();
+            if (!rawDate) return null;
+
+            // Strip extraneous time/T-markers from the date string to get a clean base date
+            let cleanDate = rawDate;
+            if (cleanDate.includes('T')) cleanDate = cleanDate.split('T')[0];
+            else if (cleanDate.includes(' ')) cleanDate = cleanDate.split(' ')[0];
+
+            // If no time is explicitly provided, see if it was hiding in the date string
+            if (!rawTime) {
+                if (rawDate.includes('T')) rawTime = rawDate.split('T')[1];
+                else if (rawDate.includes(' ')) rawTime = rawDate.split(' ').slice(1).join(' ');
+            }
+
+            let dt;
+            if (rawTime) {
+                // Try standard ISO 8601 first (YYYY-MM-DDTHH:MM:SS)
+                dt = new Date(`${cleanDate}T${rawTime}`);
+                if (isNaN(dt.getTime())) {
+                    // Fallback to cross-browser space format (YYYY/MM/DD HH:MM:SS)
+                    dt = new Date(`${cleanDate.replace(/-/g, '/')} ${rawTime}`);
+                }
+            } else {
+                dt = new Date(cleanDate.replace(/-/g, '/'));
+            }
+            
+            return isNaN(dt.getTime()) ? null : dt;
         }
 
         function getCallTimestamp(call) { return parseTimestampFromFields(call.call_received_date_time || call.call_received_date, call.call_received_time); }
         function getGoTimestamp(goRecord) { return parseTimestampFromFields(goRecord.report_event_date_time || goRecord.report_event_date, goRecord.report_event_time); }
         function getArrestTimestamp(arrestRecord) { return parseTimestampFromFields(arrestRecord.arrest_date_time || arrestRecord.arrest_date, arrestRecord.arrest_time); }
+
+        // Linking and Matching Utilities
+        function normalizeLinkValue(value) { return String(value || '').trim().toLowerCase(); }
 
         function hasSecondaryCasework(clearedBy) {
             const normalized = normalizeLinkValue(clearedBy);
@@ -430,39 +535,66 @@
             return Number.isFinite(parsed) ? parsed : null;
         }
 
-        function exactCoordinateMatch(call, record, latField, lonField) {
-            const aNumLat = parseCoordinate(call.call_latitude);
-            const bNumLat = parseCoordinate(record[latField]);
-            const aNumLon = parseCoordinate(call.call_longitude);
-            const bNumLon = parseCoordinate(record[lonField]);
-            
-            if (aNumLat === null || bNumLat === null || aNumLon === null || bNumLon === null) return false;
-            return Math.abs(aNumLat - bNumLat) <= 0.0015 && Math.abs(aNumLon - bNumLon) <= 0.0015;
+        function exactCoordinateMatch(recordA, recordB, latFieldA, lonFieldA, latFieldB, lonFieldB) {
+            const aLat = parseCoordinate(recordA[latFieldA]);
+            const bLat = parseCoordinate(recordB[latFieldB]);
+            const aLon = parseCoordinate(recordA[lonFieldA]);
+            const bLon = parseCoordinate(recordB[lonFieldB]);
+
+            if (aLat === null || bLat === null || aLon === null || bLon === null) return false;
+            return Math.abs(aLat - bLat) <= 0.0015 && Math.abs(aLon - bLon) <= 0.0015;
         }
 
-        function isWithinMinuteWindow(callTimestamp, recordTimestamp, minutes = 60) {
-            if (!callTimestamp || !recordTimestamp || Number.isNaN(callTimestamp.getTime()) || Number.isNaN(recordTimestamp.getTime())) {
+        function isWithinMinuteWindow(timestampA, timestampB, minutes = 60) {
+            if (!timestampA || !timestampB || Number.isNaN(timestampA.getTime()) || Number.isNaN(timestampB.getTime())) {
                 return false;
             }
-            return Math.abs(callTimestamp - recordTimestamp) / 60000 <= minutes;
+            return Math.abs(timestampA - timestampB) / 60000 <= minutes;
+        }
+
+        function buildLinkIndices() {
+            goByReportNumber = new Map();
+            arrestByReportNumber = new Map();
+            callByCallNumber = new Map();
+
+            goReports.forEach(go => {
+                const key = normalizeLinkValue(go.report_number);
+                if (!key) return;
+                if (!goByReportNumber.has(key)) goByReportNumber.set(key, []);
+                goByReportNumber.get(key).push(go);
+            });
+
+            arrestRecords.forEach(arrest => {
+                const key = normalizeLinkValue(arrest.related_offense_report_number);
+                if (!key) return;
+                if (!arrestByReportNumber.has(key)) arrestByReportNumber.set(key, []);
+                arrestByReportNumber.get(key).push(arrest);
+            });
+
+            rawData.forEach(call => {
+                const key = normalizeLinkValue(call.call_number || call.call_id);
+                if (key) callByCallNumber.set(key, call);
+            });
         }
 
         function matchGoRecord(call, goRecord) {
             const callKey = normalizeLinkValue(call.call_number || call.call_id);
             const goKey = normalizeLinkValue(goRecord.report_number);
             if (callKey && goKey && callKey === goKey) return true;
-            return exactCoordinateMatch(call, goRecord, 'report_latitude', 'report_longitude') && isWithinMinuteWindow(getCallTimestamp(call), getGoTimestamp(goRecord), 60);
+            return exactCoordinateMatch(call, goRecord, 'call_latitude', 'call_longitude', 'report_latitude', 'report_longitude')
+                && isWithinMinuteWindow(getCallTimestamp(call), getGoTimestamp(goRecord), 60);
         }
 
         function matchArrestRecord(call, arrestRecord) {
             const callKey = normalizeLinkValue(call.call_number || call.call_id);
             const arrestKey = normalizeLinkValue(arrestRecord.related_offense_report_number);
             if (callKey && arrestKey && callKey === arrestKey) return true;
-            return exactCoordinateMatch(call, arrestRecord, 'arrest_latitude', 'arrest_longitude') && isWithinMinuteWindow(getCallTimestamp(call), getArrestTimestamp(arrestRecord), 60);
+            return exactCoordinateMatch(call, arrestRecord, 'call_latitude', 'call_longitude', 'arrest_latitude', 'arrest_longitude')
+                && isWithinMinuteWindow(getCallTimestamp(call), getArrestTimestamp(arrestRecord), 60);
         }
 
         function findLinkedCaseData(call) {
-            const cacheKey = `${call.call_number || call.call_id || ''}|${call.call_latitude || ''}|${call.call_longitude || ''}`;
+            const cacheKey = `c|${call.call_number || call.call_id || ''}|${call.call_latitude || ''}|${call.call_longitude || ''}`;
             if (linkageCache.has(cacheKey)) return linkageCache.get(cacheKey);
 
             const clearedBy = call.call_cleared_by || call.call_closed_as || '';
@@ -472,9 +604,71 @@
                 return result;
             }
 
-            const matchedGoReports = goReports.filter(goRecord => matchGoRecord(call, goRecord));
-            const matchedArrests = arrestRecords.filter(arrestRecord => matchArrestRecord(call, arrestRecord));
+            const callKey = normalizeLinkValue(call.call_number || call.call_id);
+            let matchedGoReports = callKey ? (goByReportNumber.get(callKey) || []) : [];
+            let matchedArrests = callKey ? (arrestByReportNumber.get(callKey) || []) : [];
+
+            if (matchedGoReports.length === 0) {
+                matchedGoReports = goReports.filter(go => matchGoRecord(call, go));
+            }
+            if (matchedArrests.length === 0) {
+                matchedArrests = arrestRecords.filter(arrest => matchArrestRecord(call, arrest));
+            }
+
             const result = { matchedGoReports, matchedArrests, resolutionBlocked: false };
+            linkageCache.set(cacheKey, result);
+            return result;
+        }
+
+        function findLinkedDataForGo(goRecord) {
+            const cacheKey = `g|${goRecord.report_number || ''}|${goRecord.report_latitude || ''}|${goRecord.report_longitude || ''}`;
+            if (linkageCache.has(cacheKey)) return linkageCache.get(cacheKey);
+
+            const reportKey = normalizeLinkValue(goRecord.report_number);
+            let originatingCall = reportKey ? callByCallNumber.get(reportKey) : null;
+            if (!originatingCall) {
+                originatingCall = rawData.find(call => matchGoRecord(call, goRecord)) || null;
+            }
+
+            let linkedArrests = reportKey ? (arrestByReportNumber.get(reportKey) || []) : [];
+            if (linkedArrests.length === 0) {
+                const goTimestamp = getGoTimestamp(goRecord);
+                linkedArrests = arrestRecords.filter(arrest =>
+                    exactCoordinateMatch(goRecord, arrest, 'report_latitude', 'report_longitude', 'arrest_latitude', 'arrest_longitude')
+                    && isWithinMinuteWindow(goTimestamp, getArrestTimestamp(arrest), 120)
+                );
+            }
+
+            const result = { originatingCall, linkedArrests };
+            linkageCache.set(cacheKey, result);
+            return result;
+        }
+
+        function findLinkedDataForArrest(arrestRecord) {
+            const cacheKey = `a|${arrestRecord.related_offense_report_number || ''}|${arrestRecord.arrest_latitude || ''}|${arrestRecord.arrest_longitude || ''}`;
+            if (linkageCache.has(cacheKey)) return linkageCache.get(cacheKey);
+
+            const reportKey = normalizeLinkValue(arrestRecord.related_offense_report_number);
+            let linkedGo = null;
+            if (reportKey && goByReportNumber.has(reportKey)) {
+                linkedGo = goByReportNumber.get(reportKey)[0];
+            }
+            let originatingCall = reportKey ? callByCallNumber.get(reportKey) : null;
+
+            if (!linkedGo || !originatingCall) {
+                const arrestTimestamp = getArrestTimestamp(arrestRecord);
+                if (!linkedGo) {
+                    linkedGo = goReports.find(go =>
+                        exactCoordinateMatch(arrestRecord, go, 'arrest_latitude', 'arrest_longitude', 'report_latitude', 'report_longitude')
+                        && isWithinMinuteWindow(arrestTimestamp, getGoTimestamp(go), 120)
+                    ) || null;
+                }
+                if (!originatingCall) {
+                    originatingCall = rawData.find(call => matchArrestRecord(call, arrestRecord)) || null;
+                }
+            }
+
+            const result = { linkedGo, originatingCall };
             linkageCache.set(cacheKey, result);
             return result;
         }
@@ -493,38 +687,78 @@
             return true;
         }
 
-        function parseCsvRow(line) {
-            const values = [];
-            let current = '';
+        function parseCsvText(text) {
+            const rows = [];
+            let row = [];
+            let field = '';
             let inQuotes = false;
-            for (let i = 0; i < line.length; i++) {
-                const char = line[i];
+            const len = text.length;
+
+            for (let i = 0; i < len; i++) {
+                const char = text[i];
+
+                if (inQuotes) {
+                    if (char === '"') {
+                        if (text[i + 1] === '"') { field += '"'; i++; }
+                        else { inQuotes = false; }
+                    } else {
+                        field += char;
+                    }
+                    continue;
+                }
+
                 if (char === '"') {
-                    if (inQuotes && i + 1 < line.length && line[i + 1] === '"') { current += '"'; i += 1; } 
-                    else { inQuotes = !inQuotes; }
-                } else if (char === ',' && !inQuotes) {
-                    values.push(current);
-                    current = '';
+                    inQuotes = true;
+                } else if (char === ',') {
+                    row.push(field);
+                    field = '';
+                } else if (char === '\r') {
+                    // ignore
+                } else if (char === '\n') {
+                    row.push(field);
+                    field = '';
+                    rows.push(row);
+                    row = [];
                 } else {
-                    current += char;
+                    field += char;
                 }
             }
-            values.push(current);
-            return values;
+            if (field.length > 0 || row.length > 0) {
+                row.push(field);
+                rows.push(row);
+            }
+            return rows.filter(r => !(r.length === 1 && r[0].trim() === ''));
+        }
+
+        async function fetchWithTimeout(url, timeoutMs) {
+            const controller = new AbortController();
+            const timer = setTimeout(() => controller.abort(), timeoutMs);
+            try {
+                return await fetch(url, { signal: controller.signal });
+            } finally {
+                clearTimeout(timer);
+            }
         }
 
         async function loadCsvFile(fileUrl, type, year) {
-            const response = await fetch(fileUrl);
-            if (!response.ok) throw new Error(`CSV file not found: ${response.status}`);
+            let response;
+            try {
+                response = await fetchWithTimeout(fileUrl, FETCH_TIMEOUT_MS);
+            } catch (err) {
+                if (err && err.name === 'AbortError') throw new Error('Request timed out');
+                throw new Error('Network error (possible CORS or connectivity issue)');
+            }
+            if (!response.ok) throw new Error(`HTTP ${response.status}`);
+
             const text = await response.text();
-            const lines = text.split(/\r?\n/).filter(line => line.trim() !== '');
-            if (lines.length < 2) return [];
-            
-            const headers = parseCsvRow(lines[0]).map(h => h.trim());
+            const rowsRaw = parseCsvText(text);
+            if (rowsRaw.length < 2) return [];
+
+            const headers = rowsRaw[0].map(h => h.trim());
             const rows = [];
-            
-            for (let i = 1; i < lines.length; i++) {
-                const values = parseCsvRow(lines[i]);
+
+            for (let i = 1; i < rowsRaw.length; i++) {
+                const values = rowsRaw[i];
                 if (values.length === 0 || values.every(value => value.trim() === '')) continue;
                 const entry = {};
                 headers.forEach((header, index) => {
@@ -536,29 +770,36 @@
         }
 
         async function loadCsvBundle(year) {
-            // Updated to use the Cloudflare R2 public bucket URL
-            const directoryPath = 'https://pub-2fa3e4f059b7421d993f0d69e62e86be.r2.dev/'; 
-            
+            const directoryPath = 'https://pub-2fa3e4f059b7421d993f0d69e62e86be.r2.dev/';
+
             const filesToTry = [
-                { name: `${directoryPath}calls_for_service.csv`, type: 'calls' },
-                { name: `${directoryPath}general_offenses.csv`, type: 'gos' },
-                { name: `${directoryPath}arrest_bookings.csv`, type: 'arrests' }
+                { name: `${directoryPath}calls_for_service.csv`, type: 'calls', label: 'Calls for Service' },
+                { name: `${directoryPath}general_offenses.csv`, type: 'gos', label: 'General Offenses' },
+                { name: `${directoryPath}arrest_bookings.csv`, type: 'arrests', label: 'Arrest Bookings' }
             ];
 
             const results = await Promise.all(filesToTry.map(async file => {
                 try {
                     const rows = await loadCsvFile(file.name, file.type, year);
-                    return { type: file.type, rows };
+                    return { type: file.type, label: file.label, rows: rows, success: true };
                 } catch (error) {
                     console.warn(`Could not load ${file.name}:`, error);
-                    return { type: file.type, rows: [] };
+                    return { type: file.type, label: file.label, rows: [], success: false, error: error };
                 }
             }));
+
+            const allFailed = results.every(r => r.success === false);
+            if (allFailed) {
+                throw new Error("Could not connect to Cloudflare R2. Check CORS or URL.");
+            }
+
+            const failedLabels = results.filter(r => !r.success).map(r => r.label);
 
             return {
                 calls: results.find(item => item.type === 'calls')?.rows || [],
                 gos: results.find(item => item.type === 'gos')?.rows || [],
-                arrests: results.find(item => item.type === 'arrests')?.rows || []
+                arrests: results.find(item => item.type === 'arrests')?.rows || [],
+                failedLabels
             };
         }
 
@@ -569,7 +810,7 @@
                     ...item,
                     _internal_idx: 'c_' + idx,
                     _timestamp: dt ? dt.getTime() : 0,
-                    _searchStr: [item.call_reported_as, item.call_closed_as, item.call_address, item.call_number, item.id, item.call_id].join(' ').toLowerCase()
+                    _searchStr: [item.call_reported_as, item.call_closed_as, item.call_address, item.call_number, item.id, item.call_id, item.call_district, item.call_beat].join(' ').toLowerCase()
                 };
             });
 
@@ -579,7 +820,7 @@
                     ...item,
                     _internal_idx: 'g_' + idx,
                     _timestamp: dt ? dt.getTime() : 0,
-                    _searchStr: [item.report_number, item.report_primary_offense_description, item.report_address, item.report_summary_offense_description].join(' ').toLowerCase()
+                    _searchStr: [item.report_number, item.report_primary_offense_description, item.report_address, item.report_summary_offense_description, item.report_district, item.report_beat].join(' ').toLowerCase()
                 };
             });
 
@@ -592,6 +833,8 @@
                     _searchStr: [item.related_offense_report_number, item.arrest_charge, item.arrest_address, item.arrestee_name].join(' ').toLowerCase()
                 };
             });
+
+            buildLinkIndices();
         }
 
         async function fetchData() {
@@ -604,6 +847,7 @@
             activeDataRequest += 1;
             const requestId = activeDataRequest;
             linkageCache.clear();
+            showLoadWarning(null);
 
             fetchBtnText.innerText = 'Loading CSV...';
             const originalIcon = fetchBtn.querySelector('svg').outerHTML;
@@ -611,25 +855,38 @@
             fetchBtn.disabled = true;
             setStatus(`Loading remote CSV (${year})...`, 'loading');
 
+            rawData = [];
+            goReports = [];
+            arrestRecords = [];
+            filteredData = [];
+            allMatches = [];
+
             try {
                 const bundle = await loadCsvBundle(year);
                 if (requestId !== activeDataRequest) return;
 
                 processAndMapData(bundle);
-                
-                if (rawData.length === 0 && goReports.length === 0 && arrestRecords.length === 0) {
-                    setStatus('CSVs empty/missing, using mock data...', 'warning');
-                    processAndMapData(generateMockData(150, year));
+
+                const totalRows = rawData.length + goReports.length + arrestRecords.length;
+
+                if (totalRows === 0) {
+                    setStatus(`No records found for ${year} in the R2 bucket.`, 'warning');
+                } else if (bundle.failedLabels && bundle.failedLabels.length > 0) {
+                    setStatus(`Loaded ${rawData.length} calls, ${goReports.length} GOs, ${arrestRecords.length} arrests (partial)`, 'warning');
+                    showLoadWarning(`Could not load: ${bundle.failedLabels.join(', ')}. Cross-linking to those record types will be unavailable this session.`);
                 } else {
                     setStatus(`Loaded ${rawData.length} calls, ${goReports.length} GOs, ${arrestRecords.length} arrests`, 'success');
+                    if (totalRows > LARGE_DATASET_WARNING_ROWS) {
+                        showLoadWarning(`Large dataset (${totalRows.toLocaleString()} rows) — search and filtering may be slower than usual in this browser tab.`);
+                    }
                 }
-                
+
                 populateDynamicDropdowns();
                 applyFilters();
             } catch (error) {
                 console.error('CSV Load Error:', error);
-                setStatus(`CSV load failed, using mock data.`, 'warning');
-                processAndMapData(generateMockData(150, year));
+                setStatus(`Connection failed: ${error && error.message ? error.message : 'check CORS settings or exact filenames in R2.'}`, 'error');
+
                 populateDynamicDropdowns();
                 applyFilters();
             } finally {
@@ -643,8 +900,8 @@
         // View Toggling & Filtering
         function switchDataset() {
             currentDataset = document.getElementById('datasetSelect').value;
-            document.getElementById('searchInput').value = ''; 
-            
+            document.getElementById('searchInput').value = '';
+
             if(currentDataset === 'calls') {
                 priorityFilterContainer.style.display = 'block';
             } else {
@@ -680,11 +937,11 @@
             const fillSelect = (id, set, label) => {
                 const el = document.getElementById(id);
                 const currentVal = el.value;
-                el.innerHTML = `<option value="all">All ${label}</option>`;
+                el.innerHTML = `<option value="all">All ${escapeHTML(label)}</option>`;
                 Array.from(set).sort().forEach(val => {
                     if(val && String(val).trim() !== '') el.innerHTML += `<option value="${escapeHTML(val)}">${escapeHTML(val)}</option>`;
                 });
-                if(Array.from(set).includes(currentVal) || Array.from(set).includes(Number(currentVal))) {
+                if(Array.from(set).includes(currentVal)) {
                     el.value = currentVal;
                 }
             };
@@ -710,7 +967,7 @@
 
             if (filterType === 'high_priority') {
                 document.getElementById('datasetSelect').value = 'calls';
-                switchDataset(); 
+                switchDataset();
                 document.getElementById('priorityFilter').value = 'high';
             } else if (filterType === 'traffic') {
                 document.getElementById('datasetSelect').value = 'calls';
@@ -736,17 +993,23 @@
         function applyFilters() {
             const rawSearchTerm = document.getElementById('searchInput').value.toLowerCase().trim();
             const searchTerms = rawSearchTerm ? rawSearchTerm.split(/\s+/) : [];
-            
+
             const sortOrder = document.getElementById('sortOrder').value;
             const startDateRaw = document.getElementById('startDate').value;
             const endDateRaw = document.getElementById('endDate').value;
             const typeFilter = document.getElementById('typeFilter').value;
             const districtFilter = document.getElementById('districtFilter').value;
             const beatFilter = document.getElementById('beatFilter').value;
-            
+
             const startDate = startDateRaw ? new Date(startDateRaw) : null;
             const endDate = endDateRaw ? new Date(endDateRaw) : null;
             if(endDate) endDate.setHours(23, 59, 59, 999);
+
+            if (startDate && endDate && startDate.getTime() > endDate.getTime()) {
+                dateOrderWarning.classList.remove('hidden');
+            } else {
+                dateOrderWarning.classList.add('hidden');
+            }
 
             let sourceData = [];
             if (currentDataset === 'calls') sourceData = rawData;
@@ -769,12 +1032,12 @@
                     if (typeFilter !== 'all') matchesType = record.call_reported_as === typeFilter;
                     if (districtFilter !== 'all') matchesDistrict = String(record.call_district) === districtFilter;
                     if (beatFilter !== 'all') matchesBeat = String(record.call_beat) === beatFilter;
-                } 
+                }
                 else if (currentDataset === 'gos') {
                     if (typeFilter !== 'all') matchesType = record.report_primary_offense_description === typeFilter;
                     if (districtFilter !== 'all') matchesDistrict = String(record.report_district) === districtFilter;
                     if (beatFilter !== 'all') matchesBeat = String(record.report_beat) === beatFilter;
-                } 
+                }
                 else if (currentDataset === 'arrests') {
                     if (typeFilter !== 'all') matchesType = record.arrest_charge === typeFilter;
                 }
@@ -788,7 +1051,7 @@
                         matchesSearch = searchTerms.every(term => record._searchStr.includes(term));
                     }
                 }
-                
+
                 let matchesDate = true;
                 if (startDate || endDate) {
                     if (startDate && record._timestamp < startDate.getTime()) matchesDate = false;
@@ -799,13 +1062,18 @@
             });
 
             matchedData.sort((a, b) => {
+                // Ensure records with missing/invalid dates always sink to the bottom
+                if (a._timestamp === 0 && b._timestamp !== 0) return 1;
+                if (b._timestamp === 0 && a._timestamp !== 0) return -1;
+
                 if (sortOrder === 'asc') return a._timestamp - b._timestamp;
-                return b._timestamp - a._timestamp; 
+                return b._timestamp - a._timestamp;
             });
 
             allMatches = matchedData;
             currentPage = 1;
             renderTable(matchedData.length);
+            if (!document.getElementById('summaryPanel').classList.contains('hidden')) renderSummary();
         }
 
         function changePage(direction) {
@@ -817,7 +1085,7 @@
 
         function renderTable(totalMatches = allMatches.length) {
             tableBody.innerHTML = '';
-            
+
             if (totalMatches === 0) {
                 tableBody.innerHTML = `<tr><td colspan="5" class="px-6 py-12 text-center text-slate-500 bg-slate-50">No records found matching your filters.</td></tr>`;
                 prevPageBtn.disabled = true;
@@ -833,8 +1101,8 @@
 
             const rows = filteredData.map(record => {
                 if (currentDataset === 'calls') {
-                    const dateTime = formatDateTime(record.call_received_date_time || record.call_received_date, record.call_received_time);
-                    const safeId = escapeHTML(record.call_number || record.id || record.call_id); 
+                    const dateTime = formatDisplayTime(record.call_received_date_time || record.call_received_date, record.call_received_time);
+                    const safeId = escapeHTML(record.call_number || record.id || record.call_id);
                     return `
                     <tr class="hover:bg-blue-50 transition-colors group cursor-pointer" onclick="viewDetails('${record._internal_idx}')">
                         <td class="px-4 sm:px-6 py-4 border-b border-slate-100">
@@ -860,9 +1128,9 @@
                             <button class="text-blue-600 hover:text-blue-800 text-xs font-semibold px-2 sm:px-3 py-1 sm:py-1.5 bg-blue-50 rounded group-hover:bg-blue-100 transition-colors">Details</button>
                         </td>
                     </tr>`;
-                } 
+                }
                 else if (currentDataset === 'gos') {
-                    const dateTime = formatDateTime(record.report_event_date_time || record.report_event_date, record.report_event_time);
+                    const dateTime = formatDisplayTime(record.report_event_date_time || record.report_event_date, record.report_event_time);
                     return `
                     <tr class="hover:bg-emerald-50 transition-colors group cursor-pointer" onclick="viewDetails('${record._internal_idx}')">
                         <td class="px-4 sm:px-6 py-4 border-b border-slate-100"><div class="font-bold text-slate-800">${escapeHTML(record.report_number || 'N/A')}</div></td>
@@ -871,9 +1139,9 @@
                         <td class="px-4 sm:px-6 py-4 border-b border-slate-100 text-slate-800 whitespace-normal min-w-[150px]">${escapeHTML(record.report_address || 'Location Redacted')}</td>
                         <td class="px-4 sm:px-6 py-4 border-b border-slate-100 text-right"><button class="text-emerald-600 px-2 sm:px-3 py-1 sm:py-1.5 bg-emerald-50 rounded group-hover:bg-emerald-100">Details</button></td>
                     </tr>`;
-                } 
+                }
                 else {
-                    const dateTime = formatDateTime(record.arrest_date_time || record.arrest_date, record.arrest_time);
+                    const dateTime = formatDisplayTime(record.arrest_date_time || record.arrest_date, record.arrest_time);
                     return `
                     <tr class="hover:bg-indigo-50 transition-colors group cursor-pointer" onclick="viewDetails('${record._internal_idx}')">
                         <td class="px-4 sm:px-6 py-4 border-b border-slate-100"><div class="font-bold text-slate-800">${escapeHTML(record.related_offense_report_number || 'No Case Link')}</div></td>
@@ -884,7 +1152,7 @@
                     </tr>`;
                 }
             });
-            
+
             tableBody.innerHTML = rows.join('');
             const totalPages = Math.max(1, Math.ceil(totalMatches / pageSize));
             prevPageBtn.disabled = currentPage === 1;
@@ -893,14 +1161,139 @@
             recordCount.innerHTML = `Showing <span class="font-bold text-slate-800">${filteredData.length}</span> of <span class="text-slate-600">${totalMatches}</span> matching records`;
         }
 
+        // --- Summary / analytics panel ---
+        function renderSummary() {
+            const totals = document.getElementById('summaryTotals');
+            const typesEl = document.getElementById('summaryTypes');
+            const thirdEl = document.getElementById('summaryThird');
+            const thirdLabel = document.getElementById('summaryThirdLabel');
+
+            const data = allMatches;
+            const datasetLabel = currentDataset === 'calls' ? 'Calls for Service' : (currentDataset === 'gos' ? 'General Offenses' : 'Arrest Bookings');
+
+            totals.innerHTML = `
+                <div><span class="text-slate-400">Dataset:</span> <strong>${escapeHTML(datasetLabel)}</strong></div>
+                <div><span class="text-slate-400">Matching records:</span> <strong>${data.length.toLocaleString()}</strong></div>
+            `;
+
+            // Top types breakdown
+            const typeField = currentDataset === 'calls' ? 'call_reported_as' : (currentDataset === 'gos' ? 'report_primary_offense_description' : 'arrest_charge');
+            const typeCounts = new Map();
+            data.forEach(r => {
+                const val = (r[typeField] || 'Unspecified').trim() || 'Unspecified';
+                typeCounts.set(val, (typeCounts.get(val) || 0) + 1);
+            });
+            const sortedTypes = Array.from(typeCounts.entries()).sort((a, b) => b[1] - a[1]).slice(0, 6);
+            const maxTypeCount = sortedTypes.length ? sortedTypes[0][1] : 1;
+            typesEl.innerHTML = sortedTypes.length ? sortedTypes.map(([label, count]) => `
+                <div>
+                    <div class="flex justify-between text-[11px] text-slate-600 mb-0.5">
+                        <span class="truncate pr-2">${escapeHTML(label)}</span>
+                        <span class="font-semibold shrink-0">${count.toLocaleString()}</span>
+                    </div>
+                    <div class="stat-bar-track h-1.5"><div class="stat-bar-fill" style="width:${(count / maxTypeCount * 100).toFixed(0)}%"></div></div>
+                </div>
+            `).join('') : `<div class="text-xs text-slate-400">No data to summarize.</div>`;
+
+            // Third column: priority breakdown for calls, district breakdown otherwise
+            if (currentDataset === 'calls') {
+                thirdLabel.innerText = 'Priority Breakdown';
+                const priorityCounts = new Map();
+                data.forEach(r => {
+                    const p = String(parseInt(r.call_priority)) || 'Unknown';
+                    priorityCounts.set(p, (priorityCounts.get(p) || 0) + 1);
+                });
+                const order = ['1', '2', '3', '4'];
+                const rest = Array.from(priorityCounts.keys()).filter(k => !order.includes(k));
+                const orderedKeys = [...order.filter(k => priorityCounts.has(k)), ...rest];
+                const maxP = Math.max(1, ...priorityCounts.values());
+                thirdEl.innerHTML = orderedKeys.length ? orderedKeys.map(key => {
+                    const count = priorityCounts.get(key);
+                    const label = key === 'NaN' ? 'Unspecified' : `Priority ${key}`;
+                    return `
+                    <div>
+                        <div class="flex justify-between text-[11px] text-slate-600 mb-0.5">
+                            <span>${escapeHTML(label)}</span>
+                            <span class="font-semibold">${count.toLocaleString()}</span>
+                        </div>
+                        <div class="stat-bar-track h-1.5"><div class="stat-bar-fill" style="width:${(count / maxP * 100).toFixed(0)}%; background:${key==='1'?'#dc2626':key==='2'?'#ea580c':key==='3'?'#ca8a04':'#3b82f6'}"></div></div>
+                    </div>`;
+                }).join('') : `<div class="text-xs text-slate-400">No data to summarize.</div>`;
+            } else {
+                thirdLabel.innerText = 'Top Districts';
+                const districtField = currentDataset === 'gos' ? 'report_district' : null;
+                const districtCounts = new Map();
+                data.forEach(r => {
+                    const val = districtField ? ((r[districtField] || 'Unspecified').trim() || 'Unspecified') : 'N/A';
+                    districtCounts.set(val, (districtCounts.get(val) || 0) + 1);
+                });
+                const sortedDistricts = Array.from(districtCounts.entries()).sort((a, b) => b[1] - a[1]).slice(0, 6);
+                const maxD = sortedDistricts.length ? sortedDistricts[0][1] : 1;
+                thirdEl.innerHTML = sortedDistricts.length ? sortedDistricts.map(([label, count]) => `
+                    <div>
+                        <div class="flex justify-between text-[11px] text-slate-600 mb-0.5">
+                            <span class="truncate pr-2">${escapeHTML(label)}</span>
+                            <span class="font-semibold shrink-0">${count.toLocaleString()}</span>
+                        </div>
+                        <div class="stat-bar-track h-1.5"><div class="stat-bar-fill" style="width:${(count / maxD * 100).toFixed(0)}%"></div></div>
+                    </div>
+                `).join('') : `<div class="text-xs text-slate-400">No data to summarize.</div>`;
+            }
+        }
+
+        // --- CSV export of the currently filtered set ---
+        function exportFilteredCsv() {
+            if (!allMatches.length) {
+                setStatus('Nothing to export — no records match current filters', 'warning');
+                return;
+            }
+
+            let columns = [];
+            if (currentDataset === 'calls') {
+                columns = ['call_number', 'call_received_date_time', 'call_received_date', 'call_received_time', 'call_priority', 'call_reported_as', 'call_closed_as', 'call_address', 'call_district', 'call_beat', 'call_latitude', 'call_longitude'];
+            } else if (currentDataset === 'gos') {
+                columns = ['report_number', 'report_event_date_time', 'report_event_date', 'report_event_time', 'report_primary_offense_description', 'report_status', 'report_address', 'report_district', 'report_beat', 'report_latitude', 'report_longitude'];
+            } else {
+                columns = ['related_offense_report_number', 'arrest_date_time', 'arrest_date', 'arrest_time', 'arrest_charge', 'arrest_class', 'arrestee_name', 'arrestee_age', 'arrestee_sex', 'arrest_address', 'arrest_latitude', 'arrest_longitude'];
+            }
+            // Only keep columns that actually appear in the data to avoid empty noise columns.
+            const presentColumns = columns.filter(col => allMatches.some(r => r[col] !== undefined && r[col] !== ''));
+            const finalColumns = presentColumns.length ? presentColumns : columns;
+
+            const lines = [finalColumns.map(csvSafeCell).join(',')];
+            allMatches.forEach(record => {
+                lines.push(finalColumns.map(col => csvSafeCell(record[col] || '')).join(','));
+            });
+
+            const blob = new Blob([lines.join('\r\n')], { type: 'text/csv;charset=utf-8;' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `chandler_pd_${currentDataset}_filtered_export.csv`;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+        }
+
+        function linkageCardHtml(colorClass, title, subtitle, targetIdx, onClickable = true) {
+            const clickAttr = onClickable ? `onclick="viewDetails('${targetIdx}')" role="button" tabindex="0"` : '';
+            return `
+                <div class="rounded-lg border ${colorClass} p-2 sm:p-3 ${onClickable ? 'cursor-pointer hover:brightness-95 transition' : ''}" ${clickAttr}>
+                    <b>${escapeHTML(title)}</b><br/>
+                    <span class="text-[10px] sm:text-xs opacity-80">${escapeHTML(subtitle)}</span>
+                </div>
+            `;
+        }
+
         function viewDetails(internalIdx) {
             let record = null;
             let type = '';
-            
+
             if (internalIdx.startsWith('c_')) { record = rawData[parseInt(internalIdx.substring(2))]; type = 'calls'; }
             else if (internalIdx.startsWith('g_')) { record = goReports[parseInt(internalIdx.substring(2))]; type = 'gos'; }
             else if (internalIdx.startsWith('a_')) { record = arrestRecords[parseInt(internalIdx.substring(2))]; type = 'arrests'; }
-            
+
             if(!record) return;
 
             document.getElementById('md_closed_container').style.display = 'block';
@@ -921,51 +1314,54 @@
             if (type === 'calls') {
                 const callId = escapeHTML(record.call_number || record.id || record.call_id);
                 document.getElementById('modalTitle').innerText = `Service Call ${callId}`;
-                document.getElementById('modalSubtitle').innerText = `Agency: ${escapeHTML(record.agency || 'Chandler PD')} | Year: ${escapeHTML(record.call_year || 'N/A')}`;
-                
-                document.getElementById('md_reported').innerText = escapeHTML(record.call_reported_as || '--');
-                document.getElementById('md_event_type').innerText = escapeHTML(record.event_type || '--');
-                document.getElementById('md_closed').innerText = escapeHTML(record.call_closed_as || '--');
+                document.getElementById('modalSubtitle').innerText = `Agency: ${record.agency || 'Chandler PD'} | Year: ${record.call_year || 'N/A'}`;
+
+                document.getElementById('md_reported').innerText = record.call_reported_as || '--';
+                document.getElementById('md_event_type').innerText = record.event_type || '--';
+                document.getElementById('md_closed').innerText = record.call_closed_as || '--';
                 document.getElementById('md_priority').innerHTML = getPriorityBadge(record.call_priority);
-                document.getElementById('md_how').innerText = escapeHTML(record.call_how_received || '--');
-                document.getElementById('md_cleared').innerText = escapeHTML(record.call_cleared_by || '--');
-                
+                document.getElementById('md_how').innerText = record.call_how_received || '--';
+                document.getElementById('md_cleared').innerText = record.call_cleared_by || '--';
+
                 const recvDate = record.call_received_date_time || record.call_received_date;
-                document.getElementById('md_received').innerText = formatDisplayTime(recvDate, record.call_received_time) + ` (${escapeHTML(record.call_received_day || '')})`;
+                document.getElementById('md_received').innerText = formatDisplayTime(recvDate, record.call_received_time) + ` (${record.call_received_day || ''})`;
                 document.getElementById('md_dispatched').innerText = formatDisplayTime(record.call_dispatched_date_time, null);
                 document.getElementById('md_enroute').innerText = formatDisplayTime(record.call_enroute_date_time, null);
                 document.getElementById('md_onscene').innerText = formatDisplayTime(record.call_on_scene_date_time, null);
-                document.getElementById('md_911').innerText = formatDisplayTime(record.call_911_date_time, null) || '--';
-                
-                document.getElementById('md_address').innerText = escapeHTML(record.call_address || '--');
-                document.getElementById('md_city').innerText = escapeHTML(record.call_city || 'Chandler');
-                document.getElementById('md_district').innerText = escapeHTML(record.call_district || '--');
-                document.getElementById('md_beat').innerText = escapeHTML(record.call_beat || '--');
-                
+                document.getElementById('md_911').innerText = formatDisplayTime(record.call_911_date_time, null);
+
+                document.getElementById('md_address').innerText = record.call_address || '--';
+                document.getElementById('md_city').innerText = record.call_city || 'Chandler';
+                document.getElementById('md_district').innerText = record.call_district || '--';
+                document.getElementById('md_beat').innerText = record.call_beat || '--';
+
                 latStr = record.call_latitude;
                 lonStr = record.call_longitude;
 
-                const linkedCase = findLinkedCaseData(record);
+                const linked = findLinkedCaseData(record);
                 const linkageEl = document.getElementById('caseLinkageContent');
-                if (linkedCase.matchedGoReports.length) {
-                    linkageEl.innerHTML = linkedCase.matchedGoReports.map(go => `
-                        <div class="rounded-lg border border-emerald-200 bg-emerald-50 p-2 sm:p-3 mb-2 text-emerald-900">
-                            <b>GO: ${escapeHTML(go.report_number)}</b> - ${escapeHTML(go.report_primary_offense_description || 'General Offense')}<br/>
-                            <span class="text-[10px] sm:text-xs text-emerald-700">Status: ${escapeHTML(go.report_status || 'Open')}</span>
-                        </div>
-                    `).join('');
-                } else {
-                    linkageEl.innerHTML = `<div class="rounded-lg border border-slate-200 bg-slate-50 p-2 sm:p-3 text-slate-600">No linked GO reports found.</div>`;
+                let cardsHtml = '';
+                linked.matchedGoReports.forEach(go => {
+                    cardsHtml += linkageCardHtml('border-emerald-200 bg-emerald-50 text-emerald-900', `GO: ${go.report_number}`, `${go.report_primary_offense_description || 'General Offense'} · Status: ${go.report_status || 'Open'}`, go._internal_idx);
+                });
+                linked.matchedArrests.forEach(arrest => {
+                    cardsHtml += linkageCardHtml('border-indigo-200 bg-indigo-50 text-indigo-900', `Arrest: ${arrest.related_offense_report_number || arrest._internal_idx}`, `${arrest.arrest_charge || 'Unspecified charge'} · ${arrest.arrestee_name || 'Name redacted'}`, arrest._internal_idx);
+                });
+                if (!cardsHtml) {
+                    cardsHtml = linked.resolutionBlocked
+                        ? `<div class="rounded-lg border border-slate-200 bg-slate-50 p-2 sm:p-3 text-slate-600">This call's disposition ("${escapeHTML(record.call_cleared_by || record.call_closed_as || 'unspecified')}") does not indicate a follow-up report was generated.</div>`
+                        : `<div class="rounded-lg border border-slate-200 bg-slate-50 p-2 sm:p-3 text-slate-600">No linked GO reports or arrests found.</div>`;
                 }
+                linkageEl.innerHTML = cardsHtml;
 
             } else if (type === 'gos') {
-                document.getElementById('modalTitle').innerText = `GO Report ${escapeHTML(record.report_number || 'N/A')}`;
-                document.getElementById('modalSubtitle').innerText = `General Offense | Year: ${escapeHTML(record.report_year || 'N/A')}`;
-                
-                document.getElementById('md_reported').innerText = escapeHTML(record.report_primary_offense_description || '--');
-                document.getElementById('md_event_type').innerText = escapeHTML(record.report_summary_offense_description || '--');
-                document.getElementById('md_closed').innerText = escapeHTML(record.report_status || '--');
-                
+                document.getElementById('modalTitle').innerText = `GO Report ${record.report_number || 'N/A'}`;
+                document.getElementById('modalSubtitle').innerText = `General Offense | Year: ${record.report_year || 'N/A'}`;
+
+                document.getElementById('md_reported').innerText = record.report_primary_offense_description || '--';
+                document.getElementById('md_event_type').innerText = record.report_summary_offense_description || '--';
+                document.getElementById('md_closed').innerText = record.report_status || '--';
+
                 document.getElementById('md_priority_container').style.display = 'none';
                 document.getElementById('md_how_container').style.display = 'none';
                 document.getElementById('md_cleared_container').style.display = 'none';
@@ -973,25 +1369,40 @@
                 document.getElementById('md_enroute_container').style.display = 'none';
                 document.getElementById('md_onscene_container').style.display = 'none';
                 document.getElementById('md_911_container').style.display = 'none';
-                document.getElementById('caseLinkageContainer').style.display = 'none';
-                
+
                 document.getElementById('md_received').innerText = formatDisplayTime(record.report_event_date_time || record.report_event_date, record.report_event_time);
-                
-                document.getElementById('md_address').innerText = escapeHTML(record.report_address || '--');
-                document.getElementById('md_city').innerText = escapeHTML(record.report_city || 'Chandler');
-                document.getElementById('md_district').innerText = escapeHTML(record.report_district || '--');
-                document.getElementById('md_beat').innerText = escapeHTML(record.report_beat || '--');
+
+                document.getElementById('md_address').innerText = record.report_address || '--';
+                document.getElementById('md_city').innerText = record.report_city || 'Chandler';
+                document.getElementById('md_district').innerText = record.report_district || '--';
+                document.getElementById('md_beat').innerText = record.report_beat || '--';
 
                 latStr = record.report_latitude;
                 lonStr = record.report_longitude;
 
+                // Reverse linkage: originating call + related arrests
+                const linked = findLinkedDataForGo(record);
+                const linkageEl = document.getElementById('caseLinkageContent');
+                let cardsHtml = '';
+                if (linked.originatingCall) {
+                    const call = linked.originatingCall;
+                    cardsHtml += linkageCardHtml('border-blue-200 bg-blue-50 text-blue-900', `Originating Call: ${call.call_number || call._internal_idx}`, `${call.call_reported_as || 'Service call'} · ${formatDisplayTime(call.call_received_date_time || call.call_received_date, call.call_received_time)}`, call._internal_idx);
+                }
+                linked.linkedArrests.forEach(arrest => {
+                    cardsHtml += linkageCardHtml('border-indigo-200 bg-indigo-50 text-indigo-900', `Arrest: ${arrest.related_offense_report_number || arrest._internal_idx}`, `${arrest.arrest_charge || 'Unspecified charge'} · ${arrest.arrestee_name || 'Name redacted'}`, arrest._internal_idx);
+                });
+                if (!cardsHtml) {
+                    cardsHtml = `<div class="rounded-lg border border-slate-200 bg-slate-50 p-2 sm:p-3 text-slate-600">No linked call-for-service or arrest record found.</div>`;
+                }
+                linkageEl.innerHTML = cardsHtml;
+
             } else if (type === 'arrests') {
-                document.getElementById('modalTitle').innerText = `Arrest ${escapeHTML(record.related_offense_report_number || 'Record')}`;
-                document.getElementById('modalSubtitle').innerText = `Arrestee: ${escapeHTML(record.arrestee_name || 'Redacted')} | Age: ${escapeHTML(record.arrestee_age || '--')} | Sex: ${escapeHTML(record.arrestee_sex || record.arrestee_gender || '--')}`;
-                
-                document.getElementById('md_reported').innerText = escapeHTML(record.arrest_charge || '--');
-                document.getElementById('md_event_type').innerText = escapeHTML(record.arrest_class || '--');
-                
+                document.getElementById('modalTitle').innerText = `Arrest ${record.related_offense_report_number || 'Record'}`;
+                document.getElementById('modalSubtitle').innerText = `Arrestee: ${record.arrestee_name || 'Redacted'} | Age: ${record.arrestee_age || '--'} | Sex: ${record.arrestee_sex || record.arrestee_gender || '--'}`;
+
+                document.getElementById('md_reported').innerText = record.arrest_charge || '--';
+                document.getElementById('md_event_type').innerText = record.arrest_class || '--';
+
                 document.getElementById('md_closed_container').style.display = 'none';
                 document.getElementById('md_priority_container').style.display = 'none';
                 document.getElementById('md_how_container').style.display = 'none';
@@ -1002,19 +1413,35 @@
                 document.getElementById('md_911_container').style.display = 'none';
                 document.getElementById('md_district_container').style.display = 'none';
                 document.getElementById('md_beat_container').style.display = 'none';
-                document.getElementById('caseLinkageContainer').style.display = 'none';
-                
+
                 document.getElementById('md_received').innerText = formatDisplayTime(record.arrest_date_time || record.arrest_date, record.arrest_time);
-                
-                document.getElementById('md_address').innerText = escapeHTML(record.arrest_address || '--');
-                document.getElementById('md_city').innerText = escapeHTML(record.arrest_city || 'Chandler');
-                
+
+                document.getElementById('md_address').innerText = record.arrest_address || '--';
+                document.getElementById('md_city').innerText = record.arrest_city || 'Chandler';
+
                 latStr = record.arrest_latitude;
                 lonStr = record.arrest_longitude;
+
+                // Reverse linkage: GO report + originating call
+                const linked = findLinkedDataForArrest(record);
+                const linkageEl = document.getElementById('caseLinkageContent');
+                let cardsHtml = '';
+                if (linked.linkedGo) {
+                    const go = linked.linkedGo;
+                    cardsHtml += linkageCardHtml('border-emerald-200 bg-emerald-50 text-emerald-900', `GO: ${go.report_number}`, `${go.report_primary_offense_description || 'General Offense'} · Status: ${go.report_status || 'Open'}`, go._internal_idx);
+                }
+                if (linked.originatingCall) {
+                    const call = linked.originatingCall;
+                    cardsHtml += linkageCardHtml('border-blue-200 bg-blue-50 text-blue-900', `Originating Call: ${call.call_number || call._internal_idx}`, `${call.call_reported_as || 'Service call'} · ${formatDisplayTime(call.call_received_date_time || call.call_received_date, call.call_received_time)}`, call._internal_idx);
+                }
+                if (!cardsHtml) {
+                    cardsHtml = `<div class="rounded-lg border border-slate-200 bg-slate-50 p-2 sm:p-3 text-slate-600">No linked GO report or call-for-service found.</div>`;
+                }
+                linkageEl.innerHTML = cardsHtml;
             }
 
-            document.getElementById('md_lat').innerText = escapeHTML(latStr || '--');
-            document.getElementById('md_lon').innerText = escapeHTML(lonStr || '--');
+            document.getElementById('md_lat').innerText = latStr || '--';
+            document.getElementById('md_lon').innerText = lonStr || '--';
 
             detailsModal.classList.remove('hidden');
             setTimeout(() => {
@@ -1030,11 +1457,18 @@
             detailsModal.classList.add('opacity-0');
             detailsModalContent.classList.remove('scale-100');
             detailsModalContent.classList.add('scale-95');
-            
+
             setTimeout(() => {
                 detailsModal.classList.add('hidden');
             }, 300);
         }
+
+        // Close modal on Escape for keyboard users
+        document.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape' && !detailsModal.classList.contains('hidden')) {
+                closeDetailsModal();
+            }
+        });
 
         function initMap(latStr, lonStr) {
             const mapContainer = document.getElementById('map');
@@ -1052,105 +1486,29 @@
             fallback.classList.add('hidden');
 
             setTimeout(() => {
-                if (!leafletMap) {
-                    leafletMap = L.map('map').setView([lat, lon], 15);
-                    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-                        maxZoom: 19,
-                        attribution: '© OpenStreetMap'
-                    }).addTo(leafletMap);
+                try {
+                    if (!leafletMap) {
+                        leafletMap = L.map('map').setView([lat, lon], 15);
+                        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+                            maxZoom: 19,
+                            attribution: '© OpenStreetMap'
+                        }).addTo(leafletMap);
 
-                    mapMarker = L.marker([lat, lon]).addTo(leafletMap)
-                        .bindPopup('<b>Incident Location</b><br>Coordinates approximate.');
-                } else {
-                    leafletMap.setView([lat, lon], 15);
-                    mapMarker.setLatLng([lat, lon]);
+                        mapMarker = L.marker([lat, lon]).addTo(leafletMap)
+                            .bindPopup('<b>Incident Location</b><br>Coordinates approximate.');
+                    } else {
+                        leafletMap.setView([lat, lon], 15);
+                        mapMarker.setLatLng([lat, lon]);
+                    }
+                    leafletMap.invalidateSize();
+                } catch (err) {
+                    console.warn('Map render failed:', err);
+                    mapContainer.style.display = 'none';
+                    fallback.classList.remove('hidden');
+                    fallback.innerText = 'Map failed to load.';
                 }
-                leafletMap.invalidateSize();
             }, 100);
         }
-
-        // Mock data generator expanded to supply basic data for all three datasets
-        function generateMockData(count, year) {
-            const mockCalls = [];
-            const mockGos = [];
-            const mockArrests = [];
-            
-            const types = ["TRAFFIC STOP", "SUSPICIOUS PERSON", "THEFT", "NOISE COMPLAINT", "BURGLARY", "DOMESTIC DISTURBANCE", "ACCIDENT", "WELFARE CHECK"];
-            const days = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
-            const howRecv = ["911", "Non-Emergency Line", "Officer Initiated", "Radio"];
-            const cleared = ["Arrest", "Citation", "Verbal Warning", "Report Taken", "Unfounded", "Unable to Locate"];
-            
-            for(let i=0; i<count; i++) {
-                const mMonth = Math.floor(Math.random() * 12) + 1;
-                const dDay = Math.floor(Math.random() * 28) + 1;
-                const h = Math.floor(Math.random() * 24).toString().padStart(2, '0');
-                const m = Math.floor(Math.random() * 60).toString().padStart(2, '0');
-                
-                const lat = 33.3061 + (Math.random() * 0.1 - 0.05);
-                const lon = -111.8412 + (Math.random() * 0.1 - 0.05);
-                const dateStr = `${year}-${mMonth.toString().padStart(2,'0')}-${dDay.toString().padStart(2,'0')}`;
-                const timeStr = `${h}:${m}:00`;
-                const rStr = types[Math.floor(Math.random() * types.length)];
-                const caseNum = `CPD-${year}-${Math.floor(Math.random()*90000)+10000}`;
-
-                mockCalls.push({
-                    call_number: caseNum,
-                    call_year: year.toString(),
-                    call_received_date: dateStr,
-                    call_received_time: timeStr,
-                    call_received_date_time: `${dateStr}T${timeStr}`,
-                    call_received_day: days[new Date(dateStr).getDay()],
-                    call_city: "CHANDLER",
-                    call_district: Math.floor(Math.random() * 6) + 1,
-                    call_beat: Math.floor(Math.random() * 18) + 1,
-                    call_latitude: lat.toFixed(5),
-                    call_longitude: lon.toFixed(5),
-                    call_priority: Math.floor(Math.random() * 4) + 1,
-                    call_how_received: howRecv[Math.floor(Math.random() * howRecv.length)],
-                    call_reported_as: rStr,
-                    call_closed_as: Math.random() > 0.3 ? rStr : 'UNFOUNDED',
-                    call_cleared_by: cleared[Math.floor(Math.random() * cleared.length)],
-                    call_address: `${Math.floor(Math.random() * 5000)} BLOCK OF RANDOM AVE`
-                });
-
-                if(Math.random() > 0.75) {
-                    mockGos.push({
-                        report_number: caseNum,
-                        report_year: year.toString(),
-                        report_event_date: dateStr,
-                        report_event_time: timeStr,
-                        report_event_date_time: `${dateStr}T${timeStr}`,
-                        report_primary_offense_description: rStr,
-                        report_status: 'OPEN',
-                        report_latitude: lat.toFixed(5),
-                        report_longitude: lon.toFixed(5),
-                        report_address: `${Math.floor(Math.random() * 5000)} BLOCK OF RANDOM AVE`
-                    });
-                }
-                
-                if(Math.random() > 0.90) {
-                    mockArrests.push({
-                        related_offense_report_number: caseNum,
-                        arrest_year: year.toString(),
-                        arrest_date: dateStr,
-                        arrest_time: timeStr,
-                        arrest_date_time: `${dateStr}T${timeStr}`,
-                        arrest_charge: rStr,
-                        arrest_class: 'MISDEMEANOR',
-                        arrestee_name: 'DOE, JOHN',
-                        arrestee_age: Math.floor(Math.random() * 40) + 18,
-                        arrest_latitude: lat.toFixed(5),
-                        arrest_longitude: lon.toFixed(5),
-                        arrest_address: `${Math.floor(Math.random() * 5000)} BLOCK OF RANDOM AVE`
-                    });
-                }
-            }
-            return { calls: mockCalls, gos: mockGos, arrests: mockArrests };
-        }
-
-        window.addEventListener('DOMContentLoaded', () => {
-            fetchData();
-        });
     </script>
 </body>
 </html>
