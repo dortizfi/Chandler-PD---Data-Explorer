@@ -44,15 +44,18 @@
         @media (prefers-reduced-motion: reduce) {
             * { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; }
         }
+
+        /* Force mobile browsers to respect dynamic toolbars */
+        body { height: 100vh; height: 100dvh; }
     </style>
 </head>
-<body class="bg-slate-50 text-slate-900 font-sans h-screen flex flex-col overflow-hidden">
+<body class="bg-slate-50 text-slate-900 font-sans flex flex-col overflow-hidden">
 
     <header class="bg-slate-900 text-white p-4 shadow-md flex justify-between items-center shrink-0 z-30 relative">
         <div class="flex items-center gap-3">
-            <!-- Mobile Menu Toggle -->
-            <button onclick="toggleSidebar()" class="md:hidden text-slate-300 hover:text-white p-1 bg-slate-800 rounded" aria-label="Toggle menu">
-                <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16"></path></svg>
+            <!-- Mobile Menu Toggle (Added shrink-0 to prevent squishing) -->
+            <button onclick="toggleSidebar()" class="md:hidden shrink-0 flex items-center justify-center text-slate-300 hover:text-white p-1.5 bg-slate-800 rounded" aria-label="Toggle menu">
+                <svg class="w-6 h-6 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16"></path></svg>
             </button>
             <div>
                 <h1 class="text-xl font-bold flex items-center gap-2">
